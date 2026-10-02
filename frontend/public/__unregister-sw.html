@@ -1,0 +1,10 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Unregister SW</title>
+<script>
+  navigator.serviceWorker?.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister())))
+    .then(() => caches.keys())
+    .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+    .then(() => { document.body.textContent = 'done — close this tab and reload the app'; });
+</script>
+<body>working…</body>

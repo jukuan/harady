@@ -1,0 +1,19 @@
+# Go
+backend/harady-server
+backend/harady-cli
+*.test
+
+# SQLite
+backend/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Env
+.env
+.env.local
+
+# Node 
+frontend/node_modules/
+frontend/dist/
+frontend/.env*
