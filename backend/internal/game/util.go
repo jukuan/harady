@@ -6,20 +6,27 @@ import (
 	"unicode"
 )
 
-// exceptionEndings are letters that are hard or impossible to begin a city
-// name with. If a city ends in one of these, the required next letter is the
-// previous character instead.
+// endingSubstitutes maps a city's final letter to the letter the next city
+// must actually start with. Belarusian short vowels have a "full" form:
 //
-// Belarusian + Russian Cyrillic: ь ъ ы й ў і
-// (Deliberately excludes а / е — they are both common endings AND common
-// starting letters, so treating them as exceptions would break most chains.)
-var exceptionEndings = map[rune]bool{
+//	ў (short u) → у
+//	й (short i) → і
+//
+// so "Магілёў" → next city on "У", "Сіднэй" → next city on "І".
+var endingSubstitutes = map[rune]rune{
+	'ў': 'у', 'Ў': 'У',
+	'й': 'і', 'Й': 'І',
+}
+
+// skipEndings are letters that essentially can't begin a city name. When a
+// city ends in one of these, the required letter is the previous letter.
+//
+// ь (soft sign) and ъ (hard sign) are never initial in this language family;
+// ы is technically possible (Ыйджонбу) but so obscure it breaks the game.
+var skipEndings = map[rune]bool{
 	'ь': true, 'Ь': true,
 	'ъ': true, 'Ъ': true,
 	'ы': true, 'Ы': true,
-	'й': true, 'Й': true,
-	'ў': true, 'Ў': true,
-	'і': true, 'І': true,
 }
 
 // NormalizeCity lowercases and trims a city name for comparison / storage in
@@ -38,13 +45,21 @@ func FirstLetter(s string) rune {
 	return 0
 }
 
-// LastMeaningfulLetter returns the letter the next city must start with,
-// applying the exception-endings rule.
+// LastMeaningfulLetter returns the letter the next city must start with.
 //
-//	"Мінск"   -> 'К'
-//	"Гомель"  -> 'Л'  (exception: Ь)
-//	"Магілёў" -> 'Ё'  (exception: Ў)
-//	"Баранавічы" -> 'Ч' (exception: Ы)
+// Rules:
+//   - If the last letter has a substitute (ў → у, й → і), return the substitute.
+//   - If the last letter is a skip letter (ь, ъ, ы), step back to the previous
+//     letter and use that.
+//   - Otherwise return the last letter itself.
+//
+// Examples:
+//
+//	"Мінск"      -> 'К'
+//	"Магілёў"    -> 'У'  (ў → у)
+//	"Сіднэй"     -> 'І'  (й → і)
+//	"Гомель"     -> 'Л'  (ь is skipped)
+//	"Баранавічы" -> 'Ч'  (ы is skipped)
 func LastMeaningfulLetter(s string) rune {
 	runes := []rune(strings.TrimSpace(s))
 	if len(runes) == 0 {
@@ -55,12 +70,16 @@ func LastMeaningfulLetter(s string) rune {
 		if !unicode.IsLetter(r) {
 			continue
 		}
-		if exceptionEndings[r] && i > 0 {
+		if sub, ok := endingSubstitutes[r]; ok {
+			return unicode.ToUpper(sub)
+		}
+		if skipEndings[r] {
 			for j := i - 1; j >= 0; j-- {
 				if unicode.IsLetter(runes[j]) {
 					return unicode.ToUpper(runes[j])
 				}
 			}
+			// No previous letter — fall through and use the skip letter itself.
 		}
 		return unicode.ToUpper(r)
 	}

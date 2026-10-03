@@ -20,17 +20,18 @@ func TestFirstLetter(t *testing.T) {
 
 func TestLastMeaningfulLetter(t *testing.T) {
 	cases := map[string]rune{
-		"":            0,
-		"Мінск":       'К',
-		"Віцебск":     'К',
-		"Брэст":       'Т',
-		"Гродна":      'А',
-		"Гомель":      'Л', // ь -> previous
-		"Магілёў":     'Ё', // ў -> previous
-		"Баранавічы":  'Ч', // ы -> previous
-		"Кіеў":        'Е', // ў -> previous
-		"Йорк":        'К',
-		"St John's":   'S',
+		"":                     0,
+		"Мінск":                'К',
+		"Віцебск":              'К',
+		"Брэст":                'Т',
+		"Гродна":               'А',
+		"Гомель":               'Л', // ь skipped → previous letter
+		"Магілёў":              'У', // ў → у
+		"Кіеў":                 'У', // ў → у
+		"Сіднэй":               'І', // й → і
+		"Баранавічы":           'Ч', // ы skipped → previous letter
+		"Йорк":                 'К',
+		"St John's":            'S',
 		"Бабруйск-на-Бярэзіне": 'Е',
 	}
 	for in, want := range cases {

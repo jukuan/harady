@@ -4,11 +4,19 @@
 # Usage:
 #   sudo bash bin/setup_nginx.sh              # install HTTP configs, run certbot
 #   sudo bash bin/setup_nginx.sh --http-only  # install HTTP configs only
+#
+# Env overrides:
+#   FRONT_DOMAIN      default: harady.juljan.by
+#   API_DOMAIN        default: api.harady.juljan.by
+#   BACKEND_PORT      default: 8101
+#   REPO_DIR          default: /home/harady/harady.juljan.by
+#   FRONT_ROOT        default: $REPO_DIR/frontend/dist
+#   CERTBOT_EMAIL     default: y.misiukevich@gmail.com
 set -euo pipefail
 
 FRONT_DOMAIN="${FRONT_DOMAIN:-harady.juljan.by}"
 API_DOMAIN="${API_DOMAIN:-api.harady.juljan.by}"
-BACKEND_PORT="${BACKEND_PORT:-8070}"
+BACKEND_PORT="${BACKEND_PORT:-8101}"
 REPO_DIR="${REPO_DIR:-/home/harady/harady.juljan.by}"
 FRONT_ROOT="${FRONT_ROOT:-$REPO_DIR/frontend/dist}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-y.misiukevich@gmail.com}"
@@ -32,10 +40,31 @@ if ! command -v nginx >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# HTTP/2 syntax depends on nginx version.
+#
+#   nginx >= 1.25.1  →  listen 443 ssl;       +  http2 on;
+#   nginx <  1.25.1  →  listen 443 ssl http2;
+#
+# Debian 12 ships 1.22.x, which needs the older combined form.
+# ---------------------------------------------------------------------------
+NGINX_VER="$(nginx -v 2>&1 | sed -E 's|.*/([0-9.]+).*|\1|')"
+if [ "$(printf '%s\n' "1.25.1" "$NGINX_VER" | sort -V | head -1)" = "1.25.1" ]; then
+    LISTEN_443_MAIN='listen 443 ssl;'
+    LISTEN_443_IPV6='listen [::]:443 ssl;'
+    HTTP2_DIRECTIVE='    http2 on;'
+    echo "==> nginx $NGINX_VER — using http2 on; directive"
+else
+    LISTEN_443_MAIN='listen 443 ssl http2;'
+    LISTEN_443_IPV6='listen [::]:443 ssl http2;'
+    HTTP2_DIRECTIVE=''
+    echo "==> nginx $NGINX_VER — using legacy listen ... http2 syntax"
+fi
+
+# ---------------------------------------------------------------------------
 # Bootstrap HTTP-only configs first. Certbot will upgrade them to HTTPS.
 # ---------------------------------------------------------------------------
 
-echo "==> Writing /etc/nginx/sites-available/harady-front"
+echo "==> Writing /etc/nginx/sites-available/harady-front (HTTP)"
 cat > /etc/nginx/sites-available/harady-front <<NGINX
 server {
     listen 80;
@@ -52,7 +81,7 @@ server {
 }
 NGINX
 
-echo "==> Writing /etc/nginx/sites-available/harady-api"
+echo "==> Writing /etc/nginx/sites-available/harady-api (HTTP)"
 cat > /etc/nginx/sites-available/harady-api <<NGINX
 server {
     listen 80;
@@ -132,9 +161,9 @@ server {
 }
 
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    $LISTEN_443_MAIN
+    $LISTEN_443_IPV6
+$HTTP2_DIRECTIVE
     server_name $FRONT_DOMAIN;
 
     ssl_certificate     /etc/letsencrypt/live/$FRONT_DOMAIN/fullchain.pem;
@@ -209,9 +238,9 @@ server {
 }
 
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    $LISTEN_443_MAIN
+    $LISTEN_443_IPV6
+$HTTP2_DIRECTIVE
     server_name $API_DOMAIN;
 
     ssl_certificate     /etc/letsencrypt/live/$FRONT_DOMAIN/fullchain.pem;
@@ -266,4 +295,4 @@ echo "    Check: systemctl list-timers | grep certbot"
 echo
 echo "==> Done."
 echo "    Front: https://$FRONT_DOMAIN"
-echo "    API:   https://$API_DOMAIN"
+echo "    API:   https://$API_DOMAIN (→ 127.0.0.1:$BACKEND_PORT)"

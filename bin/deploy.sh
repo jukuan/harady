@@ -10,7 +10,7 @@ BIN="$ROOT/bin"
 APP_NAME="${APP_NAME:-harady}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/harady}"
 SERVICE_USER="${SERVICE_USER:-harady}"
-LISTEN="${HARADY_ADDR:-:8070}"
+LISTEN="${HARADY_ADDR:-:8101}"
 DB_PATH="${HARADY_DB_PATH:-$INSTALL_DIR/data/harady.db}"
 LANG_TAG="${HARADY_LANGUAGE:-be}"
 CORS_ORIGIN="${HARADY_CORS_ORIGINS:-https://harady.juljan.by}"
@@ -123,7 +123,7 @@ Env overrides:
   APP_NAME           systemd unit name (default: harady)
   INSTALL_DIR        install path     (default: /opt/harady)
   SERVICE_USER       service account  (default: harady)
-  HARADY_ADDR        listen address   (default: :8070)
+  HARADY_ADDR        listen address   (default: :8101)
   HARADY_DB_PATH     SQLite path      (default: \$INSTALL_DIR/data/harady.db)
   HARADY_CORS_ORIGINS allowed origin  (default: https://harady.juljan.by)
   HARADY_LANGUAGE    city-pack lang   (default: be)
