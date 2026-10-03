@@ -6,10 +6,10 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
-	"github.com/yourname/harady/backend/internal/config"
-	"github.com/yourname/harady/backend/internal/game"
-	"github.com/yourname/harady/backend/internal/store"
-	"github.com/yourname/harady/backend/internal/ws"
+	"github.com/jukuan/harady/backend/internal/config"
+	"github.com/jukuan/harady/backend/internal/game"
+	"github.com/jukuan/harady/backend/internal/store"
+	"github.com/jukuan/harady/backend/internal/ws"
 )
 
 func NewRouter(cfg *config.Config, hub *game.Hub, cities *store.CityStore) *gin.Engine {

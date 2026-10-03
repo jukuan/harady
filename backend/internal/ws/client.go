@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
-	"github.com/yourname/harady/backend/internal/game"
+	"github.com/jukuan/harady/backend/internal/game"
 )
 
 const (
@@ -50,17 +50,12 @@ func ServeRoomWS(hub *game.Hub) gin.HandlerFunc {
 			log.Printf("ws upgrade: %v", err)
 			return
 		}
-		cl := &Client{
-			conn: conn,
-			send: make(chan game.ServerMessage, sendBuffer),
-			room: room,
-		}
+		cl := &Client{conn: conn, send: make(chan game.ServerMessage, sendBuffer), room: room}
 		go cl.writePump()
 		cl.readPump()
 	}
 }
 
-// Send implements game.ClientHandle. Non-blocking: slow clients are dropped.
 func (c *Client) Send(m game.ServerMessage) {
 	select {
 	case c.send <- m:
@@ -137,7 +132,7 @@ func (c *Client) dispatch(msg game.ClientMessage) {
 		if c.player == nil {
 			return
 		}
-		if _, err := c.room.AddBotBy(c.player.ID, ""); err != nil {
+		if _, err := c.room.AddBotBy(c.player.ID); err != nil {
 			c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: err.Error()}})
 			return
 		}
@@ -146,10 +141,17 @@ func (c *Client) dispatch(msg game.ClientMessage) {
 		if c.player != nil {
 			c.room.ForceEnd(c.player.ID)
 		}
-	case "clue":
-		c.withText(msg, func(t string) { c.room.HandleClue(c.player.ID, t) })
-	case "guess":
-		c.withText(msg, func(t string) { c.room.HandleGuess(c.player.ID, t) })
+	case "submit_city":
+		if c.player == nil {
+			return
+		}
+		var d game.CityData
+		_ = json.Unmarshal(msg.Data, &d)
+		c.room.SubmitCity(c.player.ID, d.City)
+	case "pass":
+		if c.player != nil {
+			c.room.Pass(c.player.ID)
+		}
 	default:
 		c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "unknown message: " + msg.Type}})
 	}
@@ -174,20 +176,9 @@ func (c *Client) handleJoin(msg game.ClientMessage) {
 	}
 	c.player = p
 	c.Send(game.ServerMessage{Type: "joined", Data: map[string]any{
-		"player_id": p.ID,
-		"room":      c.room.Code,
-		"is_host":   p.IsHost,
+		"player_id": p.ID, "room": c.room.Code, "is_host": p.IsHost,
 	}})
 	c.room.BroadcastState()
-}
-
-func (c *Client) withText(msg game.ClientMessage, fn func(string)) {
-	if c.player == nil {
-		return
-	}
-	var d game.TextData
-	_ = json.Unmarshal(msg.Data, &d)
-	fn(d.Text)
 }
 
 func sanitizeNick(s string) string {

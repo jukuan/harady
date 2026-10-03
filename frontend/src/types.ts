@@ -1,76 +1,72 @@
-export type Phase = 'lobby' | 'round_active' | 'round_revealed' | 'ended'
+export type Phase = 'lobby' | 'playing' | 'ended'
 
 export interface PlayerView {
   id: string
   nickname: string
   is_bot: boolean
   is_host: boolean
-  score: number
+  missed: number
+  out: boolean
   online: boolean
+}
+
+export interface ChainEntry {
+  player_id: string
+  nickname: string
+  city: string
+  is_bot: boolean
 }
 
 export interface RoomState {
   code: string
   host_id: string
   phase: Phase
-  round: number
-  actor_id: string
-  actor_nickname: string
-  masked_city: string
   players: PlayerView[]
+  chain: ChainEntry[]
+  required_letter: string
+  current_turn_id: string
+  current_turn_nickname: string
   min_players: number
   max_players: number
-  duration: number
+  max_misses: number
 }
 
-export interface RoundStarted {
-  actor_id: string
-  actor_nickname: string
-  masked_city: string
-  round: number
-  duration: number
-}
-
-export interface TickData {
-  seconds_left: number
-  round: number
-  duration: number
-}
-
-export interface YourWord {
-  city: string
-  region?: string
-}
-
-export interface ChatMessage {
+export interface TurnStarted {
   player_id: string
   nickname: string
+  required_letter: string
+  round: number
+}
+
+export interface ChainAdded {
+  entry: ChainEntry
+  next_required_letter: string
+}
+
+export interface ChainRejected {
+  reason: 'wrong_letter' | 'already_used' | 'not_in_db' | 'empty'
   text: string
-  kind: 'clue' | 'guess'
-  is_bot: boolean
-  ts: number
 }
 
-export interface CorrectGuess {
+export interface PlayerOut {
   player_id: string
   nickname: string
-  city: string
+  missed: number
 }
 
-export interface RoundEnded {
+export interface GameEnded {
   winner_id?: string
-  city: string
-  scores: PlayerView[]
+  winner_nickname?: string
+  players: PlayerView[]
+  chain: ChainEntry[]
 }
 
 export type ServerMessage =
-  | { type: 'joined';           data: { player_id: string; room: string; is_host: boolean } }
-  | { type: 'room_state';       data: RoomState }
-  | { type: 'round_started';    data: RoundStarted }
-  | { type: 'tick';             data: TickData }
-  | { type: 'your_word';        data: YourWord }
-  | { type: 'chat';             data: ChatMessage }
-  | { type: 'correct_guess';    data: CorrectGuess }
-  | { type: 'round_ended';      data: RoundEnded }
-  | { type: 'game_ended';       data: RoomState }
-  | { type: 'error';            data: { message: string } }
+  | { type: 'joined';         data: { player_id: string; room: string; is_host: boolean } }
+  | { type: 'room_state';     data: RoomState }
+  | { type: 'turn_started';   data: TurnStarted }
+  | { type: 'chain_added';    data: ChainAdded }
+  | { type: 'chain_rejected'; data: ChainRejected }
+  | { type: 'player_out';     data: PlayerOut }
+  | { type: 'game_ended';     data: GameEnded }
+  | { type: 'error';          data: { message: string } }

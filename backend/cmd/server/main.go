@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourname/harady/backend/internal/config"
-	"github.com/yourname/harady/backend/internal/db"
-	"github.com/yourname/harady/backend/internal/game"
-	"github.com/yourname/harady/backend/internal/httpapi"
-	"github.com/yourname/harady/backend/internal/store"
+	"github.com/jukuan/harady/backend/internal/config"
+	"github.com/jukuan/harady/backend/internal/db"
+	"github.com/jukuan/harady/backend/internal/game"
+	"github.com/jukuan/harady/backend/internal/httpapi"
+	"github.com/jukuan/harady/backend/internal/store"
 )
 
 func main() {

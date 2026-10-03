@@ -15,18 +15,15 @@ export default function Room() {
   const status   = useStore((s) => s.status)
   const errorMessage = useStore((s) => s.errorMessage)
   const room = useStore((s) => s.room)
-  const finalScores = useStore((s) => s.finalScores)
+  const finalState = useStore((s) => s.finalState)
 
   const [pendingName, setPendingName] = useState('')
   const [needName, setNeedName] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_NICKNAME)
-    if (saved && !nickname) {
-      useStore.getState().setNickname(saved)
-    } else if (!saved && !nickname) {
-      setNeedName(true)
-    }
+    if (saved && !nickname) useStore.getState().setNickname(saved)
+    else if (!saved && !nickname) setNeedName(true)
   }, [nickname])
 
   const confirmName = () => {
@@ -39,44 +36,31 @@ export default function Room() {
 
   const api = useRoomSocket(code, nickname)
 
-  if (needName) {
-    return (
-      <Centered>
-        <h2 className="text-xl font-black mb-3">{S.yourName}</h2>
-        <input
-          className="input mb-3"
-          autoFocus
-          value={pendingName}
-          maxLength={20}
-          placeholder={S.namePlaceholder}
-          onChange={(e) => setPendingName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && confirmName()}
-        />
-        <button className="btn btn-primary w-full" onClick={confirmName}>
-          {S.joinRoom}
-        </button>
-      </Centered>
-    )
-  }
+  if (needName) return (
+    <Centered>
+      <h2 className="text-xl font-black mb-3">{S.jukuan}</h2>
+      <input className="input mb-3" autoFocus value={pendingName} maxLength={20}
+        placeholder={S.namePlaceholder}
+        onChange={(e) => setPendingName(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && confirmName()} />
+      <button className="btn btn-primary w-full" onClick={confirmName}>{S.joinRoom}</button>
+    </Centered>
+  )
 
-  if (status === 'error') {
-    return (
-      <Centered>
-        <div className="text-danger font-extrabold mb-3">{errorMessage ?? S.genericError}</div>
-        <button className="btn btn-ghost" onClick={() => nav('/')}>{S.backHome}</button>
-      </Centered>
-    )
-  }
+  if (status === 'error') return (
+    <Centered>
+      <div className="text-danger font-extrabold mb-3">{errorMessage ?? S.genericError}</div>
+      <button className="btn btn-ghost" onClick={() => nav('/')}>{S.backHome}</button>
+    </Centered>
+  )
 
-  if (!room) {
-    return (
-      <Centered>
-        <div className="animate-pulse text-slate-500 font-extrabold uppercase tracking-wider">
-          {S.connecting}
-        </div>
-      </Centered>
-    )
-  }
+  if (!room) return (
+    <Centered>
+      <div className="animate-pulse text-slate-500 font-extrabold uppercase tracking-wider">
+        {S.connecting}
+      </div>
+    </Centered>
+  )
 
   return (
     <>
@@ -87,23 +71,13 @@ export default function Room() {
         </div>
       )}
 
-      {finalScores ? (
-        <EndScreen onExit={() => nav('/')} onPlayAgain={api.startGame} canPlayAgain={room.host_id === useStore.getState().playerId} />
+      {finalState ? (
+        <EndScreen onExit={() => nav('/')} />
       ) : room.phase === 'lobby' ? (
-        <Lobby
-          room={room}
-          onAddBot={api.addBot}
-          onStart={api.startGame}
-          onExit={() => nav('/')}
-        />
+        <Lobby room={room} onAddBot={api.addBot} onStart={api.startGame} onExit={() => nav('/')} />
       ) : (
-        <GameScreen
-          room={room}
-          onClue={api.sendClue}
-          onGuess={api.sendGuess}
-          onEnd={api.endGame}
-          onExit={() => nav('/')}
-        />
+        <GameScreen room={room} onSubmitCity={api.submitCity} onPass={api.pass}
+                    onEnd={api.endGame} onExit={() => nav('/')} />
       )}
     </>
   )

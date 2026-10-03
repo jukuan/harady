@@ -1,4 +1,4 @@
-module github.com/yourname/harady/backend
+module github.com/jukuan/harady/backend
 
 go 1.22
 

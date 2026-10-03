@@ -9,45 +9,21 @@ export function useRoomSocket(code: string | undefined, nickname: string) {
 
     sock.setHandlers(
       (m: ServerMessage) => {
+        const s = useStore.getState()
         switch (m.type) {
-          case 'joined':
-            useStore.getState().setJoined(m.data.player_id, m.data.is_host)
-            break
-          case 'room_state':
-            useStore.getState().setRoom(m.data)
-            break
-          case 'round_started':
-            useStore.getState().startRound(m.data)
-            break
-          case 'tick':
-            useStore.getState().setTick(m.data)
-            break
-          case 'your_word':
-            useStore.getState().setWord(m.data)
-            break
-          case 'chat':
-            useStore.getState().addChat(m.data)
-            break
-          case 'correct_guess':
-            useStore.getState().setCorrect(m.data)
-            break
-          case 'round_ended':
-            useStore.getState().setRoundEnded(m.data)
-            break
-          case 'game_ended':
-            useStore.getState().setGameEnded(m.data.players)
-            break
-          case 'error':
-            useStore.getState().setStatus('error', m.data.message)
-            break
+          case 'joined':         s.setJoined(m.data.player_id, m.data.is_host); break
+          case 'room_state':     s.setRoom(m.data); break
+          case 'turn_started':   s.setTurn(m.data); break
+          case 'chain_added':    s.appendChain(m.data.entry, m.data.next_required_letter); break
+          case 'chain_rejected': s.reject(m.data); break
+          case 'player_out':     s.playerOut(m.data); break
+          case 'game_ended':     s.gameEnded(s.room!, m.data.winner_id, m.data.winner_nickname); break
+          case 'error':          s.setStatus('error', m.data.message); break
         }
       },
-      (s, err) => {
-        if (s === 'error') {
-          useStore.getState().setStatus('error', err ?? null)
-        } else {
-          useStore.getState().setStatus(s)
-        }
+      (status, err) => {
+        if (status === 'error') useStore.getState().setStatus('error', err ?? null)
+        else useStore.getState().setStatus(status)
       },
     )
 
@@ -60,10 +36,10 @@ export function useRoomSocket(code: string | undefined, nickname: string) {
   }, [code, nickname])
 
   return {
-    sendClue:  (text: string) => sock.send('clue',  { text }),
-    sendGuess: (text: string) => sock.send('guess', { text }),
-    addBot:    ()             => sock.send('add_bot'),
-    startGame: ()             => sock.send('start'),
-    endGame:   ()             => sock.send('end_game'),
+    submitCity: (city: string) => sock.send('submit_city', { city }),
+    pass:       ()             => sock.send('pass'),
+    addBot:     ()             => sock.send('add_bot'),
+    startGame:  ()             => sock.send('start'),
+    endGame:    ()             => sock.send('end_game'),
   }
 }

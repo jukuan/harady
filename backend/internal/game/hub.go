@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/yourname/harady/backend/internal/config"
-	"github.com/yourname/harady/backend/internal/store"
+	"github.com/jukuan/harady/backend/internal/config"
+	"github.com/jukuan/harady/backend/internal/store"
 )
 
 var ErrRoomNotFound = errors.New("room not found")

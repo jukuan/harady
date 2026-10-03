@@ -7,7 +7,7 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/yourname/harady/backend/internal/models"
+	"github.com/jukuan/harady/backend/internal/models"
 )
 
 var (
@@ -183,4 +183,71 @@ func PickDifferent(cities []*models.City, exceptID int64) *models.City {
 		}
 	}
 	return cities[0]
+}
+
+// Exists reports whether a city with the given name exists, case-insensitive
+// across Unicode. SQLite's lower() is ASCII-only, so we fast-path exact match
+// and fall back to a Go-side compare for Cyrillic.
+func (s *CityStore) Exists(name string) (bool, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return false, nil
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM cities WHERE name = ?`, trimmed).Scan(&n); err != nil {
+		return false, err
+	}
+	if n > 0 {
+		return true, nil
+	}
+	all, err := s.List()
+	if err != nil {
+		return false, err
+	}
+	target := strings.ToLower(trimmed)
+	for _, c := range all {
+		if strings.ToLower(c.Name) == target {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// FindByFirstLetter returns up to `limit` city names starting with `letter`,
+// excluding any name (case-insensitive) present in `exclude`.
+func (s *CityStore) FindByFirstLetter(letter rune, exclude []string, limit int) ([]string, error) {
+	if letter == 0 {
+		return nil, nil
+	}
+	excl := make(map[string]bool, len(exclude))
+	for _, e := range exclude {
+		excl[strings.ToLower(strings.TrimSpace(e))] = true
+	}
+	prefix := strings.ToUpper(string(letter))
+	rows, err := s.db.Query(`SELECT name FROM cities WHERE name LIKE ?`, prefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		if excl[strings.ToLower(n)] {
+			continue
+		}
+		out = append(out, n)
+		if len(out) >= limit*4 {
+			break
+		}
+	}
+	return out, rows.Err()
+}
+
+// Wipe removes every city. Used by `harady-cli reseed`.
+func (s *CityStore) Wipe() error {
+	_, err := s.db.Exec(`DELETE FROM cities`)
+	return err
 }

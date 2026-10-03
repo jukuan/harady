@@ -1,8 +1,5 @@
 import { create } from 'zustand'
-import type {
-  ChatMessage, CorrectGuess, PlayerView, RoomState, RoundEnded,
-  RoundStarted, TickData, YourWord,
-} from './types'
+import type { ChainEntry, ChainRejected, PlayerOut, RoomState, TurnStarted } from './types'
 
 export type ConnStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
@@ -15,26 +12,21 @@ interface State {
   isHost: boolean
 
   room: RoomState | null
-  round: RoundStarted | null
-  myWord: YourWord | null
-  secondsLeft: number | null
-
-  messages: ChatMessage[]
-  lastCorrect: CorrectGuess | null
-  lastRoundEnded: RoundEnded | null
-  finalScores: PlayerView[] | null
+  turn: TurnStarted | null
+  lastRejection: { reason: ChainRejected['reason']; text: string; at: number } | null
+  lastOut: PlayerOut | null
+  finalState: RoomState | null  // frozen snapshot on game end
+  winner: { id: string; nickname: string } | null
 
   setStatus: (s: ConnStatus, err?: string | null) => void
   setNickname: (n: string) => void
   setJoined: (id: string, isHost: boolean) => void
   setRoom: (r: RoomState) => void
-  startRound: (r: RoundStarted) => void
-  setTick: (t: TickData) => void
-  setWord: (w: YourWord) => void
-  addChat: (m: ChatMessage) => void
-  setCorrect: (c: CorrectGuess) => void
-  setRoundEnded: (r: RoundEnded) => void
-  setGameEnded: (scores: PlayerView[]) => void
+  setTurn: (t: TurnStarted) => void
+  appendChain: (e: ChainEntry, nextLetter: string) => void
+  reject: (r: ChainRejected) => void
+  playerOut: (o: PlayerOut) => void
+  gameEnded: (r: RoomState, winnerID?: string, winnerNick?: string) => void
   reset: () => void
 }
 
@@ -45,32 +37,44 @@ export const useStore = create<State>((set) => ({
   playerId: null,
   isHost: false,
   room: null,
-  round: null,
-  myWord: null,
-  secondsLeft: null,
-  messages: [],
-  lastCorrect: null,
-  lastRoundEnded: null,
-  finalScores: null,
+  turn: null,
+  lastRejection: null,
+  lastOut: null,
+  finalState: null,
+  winner: null,
 
   setStatus: (s, err = null) => set({ status: s, errorMessage: err }),
   setNickname: (n) => set({ nickname: n }),
   setJoined: (id, isHost) => set({ playerId: id, isHost }),
-  setRoom: (r) => set({ room: r }),
-  startRound: (r) => set({
-    round: r, secondsLeft: r.duration, myWord: null,
-    lastCorrect: null, lastRoundEnded: null, messages: [],
+  setRoom: (r) => set((s) => {
+    // Don't clobber finalState after the game has ended.
+    if (s.finalState && r.phase !== 'playing') return { room: r }
+    return { room: r }
   }),
-  setTick: (t) => set({ secondsLeft: t.seconds_left }),
-  setWord: (w) => set({ myWord: w }),
-  addChat: (m) => set((s) => ({ messages: [...s.messages.slice(-200), m] })),
-  setCorrect: (c) => set({ lastCorrect: c }),
-  setRoundEnded: (r) => set({ lastRoundEnded: r }),
-  setGameEnded: (scores) => set({ finalScores: scores }),
+  setTurn: (t) => set({ turn: t }),
+  appendChain: (e, nextLetter) => set((s) => {
+    if (!s.room) return {}
+    const chain = [...(s.room.chain ?? []), e]
+    return { room: { ...s.room, chain, required_letter: nextLetter } }
+  }),
+  reject: (r) => set({ lastRejection: { reason: r.reason, text: r.text, at: Date.now() } }),
+  playerOut: (o) => set((s) => {
+    if (!s.room) return { lastOut: o }
+    const players = s.room.players.map((p) =>
+      p.id === o.player_id ? { ...p, out: true, missed: o.missed } : p
+    )
+    return { room: { ...s.room, players }, lastOut: o }
+  }),
+  gameEnded: (r, id, nick) => set({
+    room: r,
+    finalState: r,
+    winner: id ? { id, nickname: nick ?? '' } : null,
+  }),
   reset: () => set({
     status: 'idle', errorMessage: null,
     playerId: null, isHost: false,
-    room: null, round: null, myWord: null, secondsLeft: null,
-    messages: [], lastCorrect: null, lastRoundEnded: null, finalScores: null,
+    room: null, turn: null,
+    lastRejection: null, lastOut: null,
+    finalState: null, winner: null,
   }),
 }))

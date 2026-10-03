@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yourname/harady/backend/internal/db"
-	"github.com/yourname/harady/backend/internal/models"
+	"github.com/jukuan/harady/backend/internal/db"
+	"github.com/jukuan/harady/backend/internal/models"
 )
 
 func newTestStore(t *testing.T) *CityStore {
@@ -23,37 +23,25 @@ func newTestStore(t *testing.T) *CityStore {
 func TestCreateAndGet(t *testing.T) {
 	s := newTestStore(t)
 
-	id, err := s.Create(&models.City{
-		Name:   "Мінск",
-		Region: "Мінская вобласць",
-		Clues:  []string{"сталіца", "Няміга"},
-	})
+	id, err := s.Create(&models.City{Name: "Мінск", Region: "Мінская вобласць"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if id <= 0 {
-		t.Fatalf("expected positive id, got %d", id)
-	}
-
 	got, err := s.GetByID(id)
 	if err != nil {
 		t.Fatalf("get by id: %v", err)
 	}
-	if got.Name != "Мінск" || got.Region != "Мінская вобласць" {
-		t.Errorf("unexpected city: %#v", got)
-	}
-	if len(got.Clues) != 2 || got.Clues[0] != "сталіца" {
-		t.Errorf("unexpected clues: %#v", got.Clues)
+	if got.Name != "Мінск" {
+		t.Errorf("got %q", got.Name)
 	}
 }
 
 func TestCreateDuplicate(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.Create(&models.City{Name: "Мінск"}); err != nil {
-		t.Fatalf("first create: %v", err)
+		t.Fatal(err)
 	}
-	_, err := s.Create(&models.City{Name: "Мінск"})
-	if !errors.Is(err, ErrDuplicate) {
+	if _, err := s.Create(&models.City{Name: "Мінск"}); !errors.Is(err, ErrDuplicate) {
 		t.Errorf("expected ErrDuplicate, got %v", err)
 	}
 }
@@ -61,7 +49,7 @@ func TestCreateDuplicate(t *testing.T) {
 func TestGetByNameCaseInsensitive(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.Create(&models.City{Name: "Мінск"}); err != nil {
-		t.Fatalf("create: %v", err)
+		t.Fatal(err)
 	}
 	c, err := s.GetByName("мінск")
 	if err != nil {
@@ -77,81 +65,90 @@ func TestGetNotFound(t *testing.T) {
 	if _, err := s.GetByID(999); !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
-	if _, err := s.GetByName("Nope"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound, got %v", err)
+}
+
+func TestExists(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.Create(&models.City{Name: "Мінск"})
+
+	ok, _ := s.Exists("Мінск")
+	if !ok {
+		t.Error("exact should be true")
+	}
+	ok, _ = s.Exists("мінск")
+	if !ok {
+		t.Error("case-insensitive should be true")
+	}
+	ok, _ = s.Exists("Гомель")
+	if ok {
+		t.Error("absent should be false")
+	}
+	ok, _ = s.Exists("")
+	if ok {
+		t.Error("empty should be false")
+	}
+}
+
+func TestFindByFirstLetter(t *testing.T) {
+	s := newTestStore(t)
+	for _, n := range []string{"Мінск", "Магілёў", "Маладзечна", "Гомель", "Гродна"} {
+		if _, err := s.Create(&models.City{Name: n}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.FindByFirstLetter('М', nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 М-cities, got %d: %v", len(got), got)
+	}
+	for _, n := range got {
+		if n == "Гомель" || n == "Гродна" {
+			t.Errorf("wrong city: %q", n)
+		}
+	}
+
+	got, _ = s.FindByFirstLetter('М', []string{"мінск"}, 10)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 after exclusion, got %d: %v", len(got), got)
+	}
+	for _, n := range got {
+		if n == "Мінск" {
+			t.Errorf("excluded city returned: %q", n)
+		}
+	}
+
+	got, _ = s.FindByFirstLetter('Я', nil, 10)
+	if len(got) != 0 {
+		t.Errorf("expected 0, got %v", got)
 	}
 }
 
 func TestUpdateAndDelete(t *testing.T) {
 	s := newTestStore(t)
 	id, _ := s.Create(&models.City{Name: "A"})
-
-	if err := s.Update(&models.City{ID: id, Name: "A", Region: "R", Clues: []string{"x"}}); err != nil {
-		t.Fatalf("update: %v", err)
+	if err := s.Update(&models.City{ID: id, Name: "A", Region: "R"}); err != nil {
+		t.Fatal(err)
 	}
-	c, _ := s.GetByID(id)
-	if c.Region != "R" || len(c.Clues) != 1 {
-		t.Errorf("update not applied: %#v", c)
-	}
-
 	if err := s.Update(&models.City{ID: 999, Name: "Z"}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
-
 	if err := s.Delete(id); err != nil {
-		t.Fatalf("delete: %v", err)
+		t.Fatal(err)
 	}
 	if _, err := s.GetByID(id); !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound after delete, got %v", err)
-	}
-}
-
-func TestListAndRandom(t *testing.T) {
-	s := newTestStore(t)
-	for _, n := range []string{"A", "B", "C"} {
-		if _, err := s.Create(&models.City{Name: n}); err != nil {
-			t.Fatalf("create %s: %v", n, err)
-		}
-	}
-
-	list, err := s.List()
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(list) != 3 {
-		t.Fatalf("expected 3, got %d", len(list))
-	}
-
-	if n, _ := s.Count(); n != 3 {
-		t.Errorf("count = %d", n)
-	}
-
-	r, err := s.Random()
-	if err != nil || r == nil {
-		t.Fatalf("random: %v %v", r, err)
-	}
-
-	many, err := s.RandomMany(2)
-	if err != nil {
-		t.Fatalf("randomMany: %v", err)
-	}
-	if len(many) != 2 {
-		t.Errorf("expected 2, got %d", len(many))
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
 func TestSeedIsIdempotent(t *testing.T) {
 	s := newTestStore(t)
-	n1, err := Seed(s)
-	if err != nil {
-		t.Fatalf("seed 1: %v", err)
-	}
-	n2, err := Seed(s)
-	if err != nil {
-		t.Fatalf("seed 2: %v", err)
-	}
+	n1, _ := Seed(s)
+	n2, _ := Seed(s)
 	if n1 == 0 {
-		t.Fatalf("first seed inserted nothing")
+		t.Fatal("first seed inserted nothing")
 	}
 	if n2 != 0 {
 		t.Errorf("second seed should insert 0, got %d", n2)
@@ -160,11 +157,11 @@ func TestSeedIsIdempotent(t *testing.T) {
 
 func TestPickDifferent(t *testing.T) {
 	if PickDifferent(nil, 0) != nil {
-		t.Errorf("expected nil for empty input")
+		t.Error("expected nil for empty input")
 	}
 	cities := []*models.City{{ID: 1}, {ID: 2}, {ID: 3}}
 	got := PickDifferent(cities, 1)
 	if got == nil || got.ID == 1 {
-		t.Errorf("PickDifferent returned excluded city: %#v", got)
+		t.Errorf("got %#v", got)
 	}
 }

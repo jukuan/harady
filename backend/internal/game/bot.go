@@ -3,56 +3,49 @@ package game
 import (
 	"math/rand"
 	"time"
-
-	"github.com/yourname/harady/backend/internal/models"
 )
 
-// runActorBot: emits the city's curated clues one by one.
-func (r *Room) runActorBot(p *Player, city *models.City) {
-	clues := append([]string(nil), city.Clues...)
-	if len(clues) == 0 {
+// runBotTurn: waits a beat to feel human, then either submits a valid city or
+// gives up. Occasionally passes even when it could play, so it's beatable.
+func (r *Room) runBotTurn(p *Player) {
+	time.Sleep(time.Duration(2000+rand.Intn(3000)) * time.Millisecond)
+
+	r.mu.RLock()
+	if r.Phase != PhasePlaying || r.turnID != p.ID {
+		r.mu.RUnlock()
 		return
 	}
-	rand.Shuffle(len(clues), func(i, j int) { clues[i], clues[j] = clues[j], clues[i] })
+	if bp := r.players[p.ID]; bp == nil || bp.Out {
+		r.mu.RUnlock()
+		return
+	}
+	letter := r.required
+	used := make([]string, 0, len(r.chainSet))
+	for k := range r.chainSet {
+		used = append(used, k)
+	}
+	r.mu.RUnlock()
 
-	for _, c := range clues {
-		time.Sleep(time.Duration(3500+rand.Intn(3000)) * time.Millisecond)
-		if !r.botShouldAct(p.ID, true) {
-			return
-		}
-		r.HandleClue(p.ID, c)
+	if rand.Float64() < 0.15 {
+		r.Pass(p.ID)
+		return
 	}
-}
 
-// runGuesserBot: tries a random city from the DB every 8–14s.
-// Statistically, with N cities, it gets the answer right about every N tries.
-func (r *Room) runGuesserBot(p *Player) {
-	time.Sleep(time.Duration(6000+rand.Intn(4000)) * time.Millisecond)
-	for {
-		if !r.botShouldAct(p.ID, false) {
-			return
+	var pick string
+	if letter == 0 {
+		cities, err := r.Cities.RandomMany(1)
+		if err == nil && len(cities) > 0 {
+			pick = cities[0].Name
 		}
-		candidates, err := r.Cities.RandomMany(1)
-		if err == nil && len(candidates) > 0 {
-			r.HandleGuess(p.ID, candidates[0].Name)
+	} else {
+		names, err := r.Cities.FindByFirstLetter(letter, used, 5)
+		if err == nil && len(names) > 0 {
+			pick = names[rand.Intn(len(names))]
 		}
-		time.Sleep(time.Duration(8000+rand.Intn(6000)) * time.Millisecond)
 	}
-}
-
-// botShouldAct reports whether the bot is still in the room and the round is
-// active. asActor additionally requires the bot to still be the actor.
-func (r *Room) botShouldAct(botID string, asActor bool) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if r.Phase != PhaseRoundActive {
-		return false
+	if pick == "" {
+		r.Pass(p.ID)
+		return
 	}
-	if _, ok := r.players[botID]; !ok {
-		return false
-	}
-	if asActor {
-		return r.actorIDLocked() == botID
-	}
-	return r.actorIDLocked() != botID
+	r.SubmitCity(p.ID, pick)
 }

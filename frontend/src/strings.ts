@@ -2,23 +2,22 @@ export const S = {
   appName: 'Harady',
   tagline: 'Гульня ў гарады',
 
-  // landing
-  yourName: 'Тваё імя',
+  jukuan: 'Тваё імя',
   namePlaceholder: 'Напрыклад, Алесь',
   createRoom: 'Стварыць пакой',
   joinRoom: 'Далучыцца',
   roomCode: 'Код пакоя',
   roomCodePlaceholder: 'ABC123',
   or: 'або',
-  createNew: 'Стварыць новы пакой',
   invalidCode: 'Няправільны код пакоя',
   nameRequired: 'Увядзі імя',
 
-  // lobby
   players: 'Гульцы',
   you: 'ты',
   host: 'гаспадар',
   bot: 'бот',
+  out: 'выбыў',
+  missed: 'промахаў',
   addBot: 'Дадаць бота',
   start: 'Пачаць',
   waiting: 'Чакаем гаспадара…',
@@ -28,36 +27,39 @@ export const S = {
   shareHint: 'Падзяліся спасылкай з сябрамі',
 
   // game
-  round: 'Раунд',
-  actor: 'Актор',
-  seconds: 'с',
-  yourCity: 'Тваё слова',
-  youAreActor: 'Ты — актор!',
-  giveClue: 'Дай падказку',
-  cluePlaceholder: 'Напішы падказку…',
-  guessPlaceholder: 'Напішы свой адказ…',
-  guess: 'Адказаць',
+  chain: 'Ланцуг гарадоў',
+  firstMove: 'Першы горад — любы',
+  nextLetter: 'Наступны горад на літару',
+  yourTurn: 'Твой ход!',
+  turnOf: (n: string) => `Ход ${n}`,
+  waitTurn: 'Чакаем іншага гульца…',
+  youAreOut: 'Ты выбыў. Назірай за гульнёй.',
+  nameCity: 'Назваць горад',
+  placeholder: 'Назва горада…',
+  pass: 'Здаюся',
   send: 'Даслаць',
-  waitingActor: 'Чакаем падказку…',
-  correct: 'Правільна!',
-  wasCity: (c: string) => `Гэта быў ${c}`,
-  nobodyGuessed: 'Ніхто не адгадаў',
   endGame: 'Скончыць гульню',
-  youAreGuesser: 'Адгадай горад!',
+  endGameConfirm: 'Скончыць гульню для ўсіх?',
+
+  // rejection reasons
+  r_wrong_letter: (l: string) => `Патрэбна літара «${l}»`,
+  r_already_used: 'Гэты горад ужо называлі',
+  r_not_in_db: 'Такога горада няма ў базе',
+  r_empty: 'Пуста',
 
   // end
   gameOver: 'Гульня скончана',
-  scoreboard: 'Вынікі',
+  winner: 'Пераможца',
+  noWinner: 'Нічыя',
+  noWinnerHint: 'Усе выбылі',
+  scoreboard: 'Гульцы',
+  chainLength: 'Даўжыня ланцуга',
   playAgain: 'Гуляць зноў',
   backHome: 'На галоўную',
 
-  // connection
   connecting: 'Злучэнне…',
   reconnecting: 'Перападключэнне…',
-  disconnected: 'Сувязь страчана',
   leaveRoom: 'Выйсці',
 
-  // errors
-  roomFull: 'Пакой поўны',
   genericError: 'Нешта пайшло не так',
 } as const

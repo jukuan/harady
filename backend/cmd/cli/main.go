@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yourname/harady/backend/internal/config"
-	"github.com/yourname/harady/backend/internal/db"
-	"github.com/yourname/harady/backend/internal/models"
-	"github.com/yourname/harady/backend/internal/store"
-	"github.com/yourname/harady/backend/internal/util"
+	"github.com/jukuan/harady/backend/internal/config"
+	"github.com/jukuan/harady/backend/internal/db"
+	"github.com/jukuan/harady/backend/internal/models"
+	"github.com/jukuan/harady/backend/internal/store"
+	"github.com/jukuan/harady/backend/internal/util"
 )
 
 func main() {
@@ -42,6 +42,8 @@ func main() {
 		del(cs, os.Args[2:])
 	case "seed":
 		seed(cs)
+	case "reseed":
+		reseed(cs)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -58,7 +60,8 @@ USAGE:
   harady-cli add    --name "Мінск" [--region "Мінская вобласць"] [--clues "сталіца;Няміга"]
   harady-cli update --id 1 [--name ...] [--region ...] [--clues ...]
   harady-cli delete <id>
-  harady-cli seed
+  harady-cli seed         # add missing seed cities (idempotent)
+  harady-cli reseed       # wipe the table and re-seed from the pack
 `)
 }
 
@@ -160,6 +163,17 @@ func seed(cs *store.CityStore) {
 		fatal(err)
 	}
 	fmt.Printf("seeded %d cities\n", n)
+}
+
+func reseed(cs *store.CityStore) {
+	if err := cs.Wipe(); err != nil {
+		fatal(err)
+	}
+	n, err := store.Seed(cs)
+	if err != nil {
+		fatal(err)
+	}
+	fmt.Printf("reseeded %d cities\n", n)
 }
 
 func parseFlags(args []string) map[string]string {

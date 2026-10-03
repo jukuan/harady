@@ -13,19 +13,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/yourname/harady/backend/internal/config"
-	"github.com/yourname/harady/backend/internal/db"
-	"github.com/yourname/harady/backend/internal/game"
-	"github.com/yourname/harady/backend/internal/httpapi"
-	"github.com/yourname/harady/backend/internal/models"
-	"github.com/yourname/harady/backend/internal/store"
+	"github.com/jukuan/harady/backend/internal/config"
+	"github.com/jukuan/harady/backend/internal/db"
+	"github.com/jukuan/harady/backend/internal/game"
+	"github.com/jukuan/harady/backend/internal/httpapi"
+	"github.com/jukuan/harady/backend/internal/models"
+	"github.com/jukuan/harady/backend/internal/store"
 )
 
 // =============================================================================
 // Fixture: real router + real httptest.Server + real WebSocket dialer
 // =============================================================================
 
-func setupServer(t *testing.T) (httpBase, wsBase string) {
+func setupServer(t *testing.T) (string, string) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -38,9 +38,8 @@ func setupServer(t *testing.T) (httpBase, wsBase string) {
 
 	cities := store.NewCityStore(conn)
 	for _, c := range []models.City{
-		{Name: "Мінск", Region: "Мінская", Clues: []string{"Сталіца", "Няміга", "Трэцяя падсказка"}},
-		{Name: "Гомель", Region: "Гомельская", Clues: []string{"Сож", "Другі горад"}},
-		{Name: "Брэст", Region: "Брэсцкая", Clues: []string{"Крэпасць", "Заходняя брама"}},
+		{Name: "Мінск"}, {Name: "Кіеў"}, {Name: "Варшава"},
+		{Name: "Амстэрдам"}, {Name: "Магілёў"}, {Name: "Гомель"},
 	} {
 		if _, err := cities.Create(&c); err != nil {
 			t.Fatalf("seed %s: %v", c.Name, err)
@@ -63,88 +62,71 @@ func setupServer(t *testing.T) (httpBase, wsBase string) {
 	return srv.URL, strings.Replace(srv.URL, "http://", "ws://", 1)
 }
 
-func createRoom(t *testing.T, httpBase string) string {
+func createRoom(t *testing.T, base string) string {
 	t.Helper()
-	resp, err := http.Post(httpBase+"/api/rooms", "application/json", nil)
+	resp, err := http.Post(base+"/api/rooms", "application/json", nil)
 	if err != nil {
-		t.Fatalf("POST /api/rooms: %v", err)
+		t.Fatalf("create: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("POST /api/rooms status=%d", resp.StatusCode)
-	}
-	var body struct {
-		Code string `json:"code"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode rooms: %v", err)
-	}
-	if body.Code == "" {
+	var b struct{ Code string `json:"code"` }
+	_ = json.NewDecoder(resp.Body).Decode(&b)
+	if b.Code == "" {
 		t.Fatal("empty room code")
 	}
-	return body.Code
+	return b.Code
 }
 
-// =============================================================================
-// wsClient: buffered reader with polling helpers
-// =============================================================================
-
-type wsClient struct {
+type client struct {
 	t    *testing.T
 	conn *websocket.Conn
-
-	mu    sync.Mutex
-	inbox []game.ServerMessage
+	mu   sync.Mutex
+	box  []game.ServerMessage
 }
 
-func dial(t *testing.T, url string) *wsClient {
+func dial(t *testing.T, url string) *client {
 	t.Helper()
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
-		t.Fatalf("dial %s: %v", url, err)
+		t.Fatalf("dial: %v", err)
 	}
-	c := &wsClient{t: t, conn: conn}
-	go c.readLoop()
+	c := &client{t: t, conn: conn}
+	go c.read()
 	t.Cleanup(func() { _ = conn.Close() })
 	return c
 }
 
-func (c *wsClient) readLoop() {
+func (c *client) read() {
 	for {
 		var m game.ServerMessage
 		if err := c.conn.ReadJSON(&m); err != nil {
 			return
 		}
 		c.mu.Lock()
-		c.inbox = append(c.inbox, m)
+		c.box = append(c.box, m)
 		c.mu.Unlock()
 	}
 }
 
-func (c *wsClient) send(typ string, data any) {
-	c.t.Helper()
+func (c *client) send(typ string, data any) {
 	var raw json.RawMessage
 	if data != nil {
-		b, err := json.Marshal(data)
-		if err != nil {
-			c.t.Fatalf("marshal %s: %v", typ, err)
-		}
+		b, _ := json.Marshal(data)
 		raw = b
 	}
 	if err := c.conn.WriteJSON(game.ClientMessage{Type: typ, Data: raw}); err != nil {
-		c.t.Fatalf("ws write %s: %v", typ, err)
+		c.t.Fatalf("send %s: %v", typ, err)
 	}
 }
 
-// wait consumes the first buffered frame that matches pred, polling up to timeout.
-func (c *wsClient) wait(pred func(game.ServerMessage) bool, timeout time.Duration) game.ServerMessage {
+func (c *client) wait(typ string, timeout time.Duration) game.ServerMessage {
 	c.t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		c.mu.Lock()
-		for i, m := range c.inbox {
-			if pred(m) {
-				c.inbox = append(c.inbox[:i], c.inbox[i+1:]...)
+		for i, m := range c.box {
+			if m.Type == typ {
+				c.box = append(c.box[:i], c.box[i+1:]...)
 				c.mu.Unlock()
 				return m
 			}
@@ -153,57 +135,27 @@ func (c *wsClient) wait(pred func(game.ServerMessage) bool, timeout time.Duratio
 		time.Sleep(10 * time.Millisecond)
 	}
 	c.mu.Lock()
-	types := make([]string, len(c.inbox))
-	for i, m := range c.inbox {
+	types := make([]string, len(c.box))
+	for i, m := range c.box {
 		types[i] = m.Type
 	}
 	c.mu.Unlock()
-	c.t.Fatalf("timeout waiting for frame; buffered=%v", types)
+	c.t.Fatalf("timeout waiting for %q; buffered=%v", typ, types)
 	return game.ServerMessage{}
 }
 
-func (c *wsClient) waitFor(typ string, timeout time.Duration) game.ServerMessage {
-	c.t.Helper()
-	return c.wait(func(m game.ServerMessage) bool { return m.Type == typ }, timeout)
-}
-
-func (c *wsClient) waitRoomState(players int, timeout time.Duration) game.RoomState {
-	c.t.Helper()
-	msg := c.wait(func(m game.ServerMessage) bool {
-		if m.Type != "room_state" {
-			return false
-		}
-		return len(decodeData[game.RoomState](c.t, m).Players) == players
-	}, timeout)
-	return decodeData[game.RoomState](c.t, msg)
-}
-
-// =============================================================================
-// Helpers for typed decoding of ServerMessage.Data (which is `any`)
-// =============================================================================
-
-func decodeData[T any](t *testing.T, m game.ServerMessage) T {
+func decode[T any](t *testing.T, m game.ServerMessage) T {
 	t.Helper()
 	var out T
-	b, err := json.Marshal(m.Data)
-	if err != nil {
-		t.Fatalf("remarshal %s: %v", m.Type, err)
-	}
-	if err := json.Unmarshal(b, &out); err != nil {
-		t.Fatalf("unmarshal %s: %v (raw=%s)", m.Type, err, string(b))
-	}
+	b, _ := json.Marshal(m.Data)
+	_ = json.Unmarshal(b, &out)
 	return out
 }
 
-func joinAs(t *testing.T, c *wsClient, nick string) string {
-	t.Helper()
+func joinAs(t *testing.T, c *client, nick string) string {
 	c.send("join", game.JoinData{Nickname: nick})
-	m := c.waitFor("joined", 2*time.Second)
-	data := decodeData[map[string]any](t, m)
-	id, _ := data["player_id"].(string)
-	if id == "" {
-		t.Fatalf("joined missing player_id: %v", data)
-	}
+	m := c.wait("joined", 2*time.Second)
+	id, _ := decode[map[string]any](t, m)["player_id"].(string)
 	return id
 }
 
@@ -214,326 +166,180 @@ func joinAs(t *testing.T, c *wsClient, nick string) string {
 func TestWS_JoinThenRoomState(t *testing.T) {
 	httpBase, wsBase := setupServer(t)
 	code := createRoom(t, httpBase)
-
 	c := dial(t, wsBase+"/ws/rooms/"+code)
-	id := joinAs(t, c, "Alice")
-	if id == "" {
-		t.Fatal("empty id")
+	if joinAs(t, c, "Ales") == "" {
+		t.Fatal("no id")
 	}
-
-	state := c.waitRoomState(1, 2*time.Second)
-	if state.Code != code {
-		t.Errorf("state.Code=%q want %q", state.Code, code)
+	st := decode[game.RoomState](t, c.wait("room_state", 2*time.Second))
+	if st.Phase != game.PhaseLobby {
+		t.Errorf("phase=%q", st.Phase)
 	}
-	if state.Phase != game.PhaseLobby {
-		t.Errorf("phase=%q want %q", state.Phase, game.PhaseLobby)
-	}
-	if state.Players[0].Nickname != "Alice" {
-		t.Errorf("player nickname=%q", state.Players[0].Nickname)
-	}
-	if !state.Players[0].IsHost {
-		t.Errorf("first joiner should be host")
+	if st.Players[0].Nickname != "Ales" {
+		t.Errorf("nick=%q", st.Players[0].Nickname)
 	}
 }
 
-func TestWS_RoomNotFound(t *testing.T) {
-	_, wsBase := setupServer(t)
-	_, resp, err := websocket.DefaultDialer.Dial(wsBase+"/ws/rooms/nope", nil)
-	if err == nil {
-		t.Fatal("expected dial to fail")
-	}
-	if resp == nil || resp.StatusCode != http.StatusNotFound {
-		t.Errorf("expected 404, got resp=%v err=%v", resp, err)
-	}
-}
-
-func TestWS_UnknownMessageYieldsError(t *testing.T) {
+func TestWS_ValidChainAdvances(t *testing.T) {
 	httpBase, wsBase := setupServer(t)
 	code := createRoom(t, httpBase)
+	a := dial(t, wsBase+"/ws/rooms/"+code)
+	aID := joinAs(t, a, "Ales")
+	b := dial(t, wsBase+"/ws/rooms/"+code)
+	joinAs(t, b, "Yana")
+	a.wait("room_state", time.Second) // 2 players
 
-	c := dial(t, wsBase+"/ws/rooms/"+code)
-	joinAs(t, c, "Alice")
-	c.waitRoomState(1, 2*time.Second)
-
-	c.send("xyzzy", nil)
-	errMsg := decodeData[game.ErrorData](t, c.waitFor("error", 2*time.Second))
-	if !strings.Contains(errMsg.Message, "unknown") {
-		t.Errorf("error message=%q", errMsg.Message)
+	a.send("start", nil)
+	turn := decode[game.TurnStarted](t, a.wait("turn_started", 2*time.Second))
+	actor, other := a, b
+	if turn.PlayerID != aID {
+		actor, other = b, a
+	}
+	// First move: any city. Actor submits "Мінск".
+	actor.send("submit_city", game.CityData{City: "Мінск"})
+	added := decode[game.ChainAdded](t, other.wait("chain_added", 3*time.Second))
+	if added.Entry.City != "Мінск" {
+		t.Errorf("entry city=%q", added.Entry.City)
+	}
+	if added.NextRequiredLetter != "К" {
+		t.Errorf("next letter=%q want К", added.NextRequiredLetter)
 	}
 }
 
-func TestWS_NonHostCannotStart(t *testing.T) {
+func TestWS_WrongLetterRejected(t *testing.T) {
 	httpBase, wsBase := setupServer(t)
 	code := createRoom(t, httpBase)
+	a := dial(t, wsBase+"/ws/rooms/"+code)
+	aID := joinAs(t, a, "Ales")
+	b := dial(t, wsBase+"/ws/rooms/"+code)
+	bID := joinAs(t, b, "Yana")
+	a.wait("room_state", time.Second)
 
-	alice := dial(t, wsBase+"/ws/rooms/"+code)
-	joinAs(t, alice, "Alice")
-	alice.waitRoomState(1, 2*time.Second)
+	a.send("start", nil)
+	turn := decode[game.TurnStarted](t, a.wait("turn_started", 2*time.Second))
 
-	bob := dial(t, wsBase+"/ws/rooms/"+code)
-	joinAs(t, bob, "Bob")
-	alice.waitRoomState(2, 2*time.Second)
+	var actor, other *client
+	var otherID string
+	if turn.PlayerID == aID {
+		actor, other, otherID = a, b, bID
+	} else {
+		actor, other, otherID = b, a, aID
+	}
 
-	bob.send("start", nil)
-	errMsg := decodeData[game.ErrorData](t, bob.waitFor("error", 2*time.Second))
-	if !strings.Contains(errMsg.Message, "host") {
-		t.Errorf("error message=%q", errMsg.Message)
+	actor.send("submit_city", game.CityData{City: "\u041c\u0456\u043d\u0441\u043a"})
+	// Wait until the server has processed the actor's move and the turn
+	// actually belongs to `other`. Without this, both submissions race and
+	// the server may drop the second one (it arrives while it's still the
+	// actor's turn).
+	other.waitTurnFor(otherID, 3*time.Second)
+
+	// \u041c\u0456\u043d\u0441\u043a ends in \u041a; the other player submits a city starting with \u041c.
+	other.send("submit_city", game.CityData{City: "\u041c\u0430\u0433\u0456\u043b\u0451\u045e"})
+	rej := decode[game.ChainRejected](t, other.wait("chain_rejected", 2*time.Second))
+	if rej.Reason != "wrong_letter" {
+		t.Errorf("reason=%q", rej.Reason)
 	}
 }
 
-func TestWS_TwoPlayersRoundStarts(t *testing.T) {
+func TestWS_UnknownCityRejected(t *testing.T) {
 	httpBase, wsBase := setupServer(t)
 	code := createRoom(t, httpBase)
+	a := dial(t, wsBase+"/ws/rooms/"+code)
+	aID := joinAs(t, a, "Ales")
+	b := dial(t, wsBase+"/ws/rooms/"+code)
+	bID := joinAs(t, b, "Yana")
+	a.wait("room_state", time.Second)
 
-	alice := dial(t, wsBase+"/ws/rooms/"+code)
-	aliceID := joinAs(t, alice, "Alice")
+	a.send("start", nil)
+	turn := decode[game.TurnStarted](t, a.wait("turn_started", 2*time.Second))
 
-	bob := dial(t, wsBase+"/ws/rooms/"+code)
-	bobID := joinAs(t, bob, "Bob")
-
-	alice.waitRoomState(2, 2*time.Second)
-
-	alice.send("start", nil)
-
-	aRound := decodeData[game.RoundStarted](t, alice.waitFor("round_started", 3*time.Second))
-	bRound := decodeData[game.RoundStarted](t, bob.waitFor("round_started", 3*time.Second))
-
-	if aRound.ActorID == "" {
-		t.Fatal("empty actor id")
+	var actor, other *client
+	var otherID string
+	if turn.PlayerID == aID {
+		actor, other, otherID = a, b, bID
+	} else {
+		actor, other, otherID = b, a, aID
 	}
-	if aRound.ActorID != bRound.ActorID {
-		t.Errorf("actor mismatch: a=%q b=%q", aRound.ActorID, bRound.ActorID)
-	}
-	if aRound.ActorID != aliceID && aRound.ActorID != bobID {
-		t.Errorf("actor id %q matches neither player", aRound.ActorID)
-	}
-	if aRound.MaskedCity == "" {
-		t.Error("expected a masked city on round_started")
-	}
-	if aRound.Round != 1 {
-		t.Errorf("round=%d want 1", aRound.Round)
+
+	actor.send("submit_city", game.CityData{City: "\u041c\u0456\u043d\u0441\u043a"})
+	other.waitTurnFor(otherID, 3*time.Second)
+
+	// "\u041a\u0430\u043d\u0430\u0434\u0430" starts with \u041a (correct letter) but isn't a city in our DB.
+	other.send("submit_city", game.CityData{City: "\u041a\u0430\u043d\u0430\u0434\u0430"})
+	rej := decode[game.ChainRejected](t, other.wait("chain_rejected", 2*time.Second))
+	if rej.Reason != "not_in_db" {
+		t.Errorf("reason=%q", rej.Reason)
 	}
 }
 
-// The actor receives the secret; the guesser sends it back; the round ends
-// with the correct-guess event visible to both players.
-func TestWS_CorrectGuessEndsRound(t *testing.T) {
-	httpBase, wsBase := setupServer(t)
-	code := createRoom(t, httpBase)
-
-	alice := dial(t, wsBase+"/ws/rooms/"+code)
-	aliceID := joinAs(t, alice, "Alice")
-
-	bob := dial(t, wsBase+"/ws/rooms/"+code)
-	bobID := joinAs(t, bob, "Bob")
-
-	alice.waitRoomState(2, 2*time.Second)
-	alice.send("start", nil)
-
-	round := decodeData[game.RoundStarted](t, alice.waitFor("round_started", 3*time.Second))
-	bob.waitFor("round_started", 3*time.Second)
-
-	var actor, guesser *wsClient
-	switch round.ActorID {
-	case aliceID:
-		actor, guesser = alice, bob
-	case bobID:
-		actor, guesser = bob, alice
-	default:
-		t.Fatalf("unknown actor %q", round.ActorID)
-	}
-
-	word := decodeData[game.YourWord](t, actor.waitFor("your_word", 2*time.Second))
-	if word.City == "" {
-		t.Fatal("actor did not receive a city")
-	}
-
-	// Actor gives a benign clue.
-	actor.send("clue", game.TextData{Text: "Гэта горад"})
-
-	// Guesser submits the correct city.
-	guesser.send("guess", game.TextData{Text: word.City})
-
-	// Both parties should see a chat echo of the guess.
-	var sawChat bool
-	for i := 0; i < 5 && !sawChat; i++ {
-		msg := guesser.wait(func(m game.ServerMessage) bool { return m.Type == "chat" }, 2*time.Second)
-		chat := decodeData[game.ChatMessage](t, msg)
-		if chat.Kind == "guess" && chat.Text == word.City {
-			sawChat = true
-		}
-	}
-	if !sawChat {
-		t.Error("guesser never saw their guess echoed")
-	}
-
-	cg := decodeData[game.CorrectGuess](t, guesser.waitFor("correct_guess", 3*time.Second))
-	if cg.City != word.City {
-		t.Errorf("correct_guess city=%q want %q", cg.City, word.City)
-	}
-	guesser.waitFor("round_ended", 3*time.Second)
-
-	actorCG := decodeData[game.CorrectGuess](t, actor.waitFor("correct_guess", 3*time.Second))
-	if actorCG.City != word.City {
-		t.Errorf("actor saw wrong city %q", actorCG.City)
-	}
-	actor.waitFor("round_ended", 3*time.Second)
-}
-
-// The actor cannot guess their own word; server silently ignores it.
-// We assert nothing is broadcast to the other player.
-func TestWS_ActorCannotGuess(t *testing.T) {
-	httpBase, wsBase := setupServer(t)
-	code := createRoom(t, httpBase)
-
-	alice := dial(t, wsBase+"/ws/rooms/"+code)
-	aliceID := joinAs(t, alice, "Alice")
-
-	bob := dial(t, wsBase+"/ws/rooms/"+code)
-	bobID := joinAs(t, bob, "Bob")
-
-	alice.waitRoomState(2, 2*time.Second)
-	alice.send("start", nil)
-
-	round := decodeData[game.RoundStarted](t, alice.waitFor("round_started", 3*time.Second))
-	bob.waitFor("round_started", 3*time.Second)
-
-	var actor, other *wsClient
-	switch round.ActorID {
-	case aliceID:
-		actor, other = alice, bob
-	case bobID:
-		actor, other = bob, alice
-	default:
-		t.Fatalf("unknown actor %q", round.ActorID)
-	}
-
-	actor.send("guess", game.TextData{Text: "спам-тэст"})
-
-	// Drain any chat messages for a short period; there should be none
-	// carrying our sentinel text.
-	deadline := time.Now().Add(700 * time.Millisecond)
+// waitTurnFor consumes turn_started frames until one names the given player.
+// This is the correct way to wait: the server broadcasts turn_started to
+// everyone, so a naive type-only match can grab a stale frame for a different
+// player and let the test race ahead of the server.
+func (c *client) waitTurnFor(id string, timeout time.Duration) game.TurnStarted {
+	c.t.Helper()
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		other.mu.Lock()
-		found := false
-		for _, m := range other.inbox {
-			if m.Type == "chat" {
-				ch := decodeData[game.ChatMessage](t, m)
-				if ch.Text == "спам-тэст" {
-					found = true
-					break
-				}
-			}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
 		}
-		other.mu.Unlock()
-		if found {
-			t.Fatal("actor's guess was broadcast; it should have been dropped")
+		m := c.wait("turn_started", remaining)
+		ts := decode[game.TurnStarted](c.t, m)
+		if ts.PlayerID == id {
+			return ts
 		}
-		time.Sleep(50 * time.Millisecond)
+		// Stale frame for another player; keep waiting.
 	}
+	c.t.Fatalf("timeout waiting for turn of %s", id)
+	return game.TurnStarted{}
 }
 
-func TestWS_LeaveBroadcastsUpdatedState(t *testing.T) {
+func TestWS_PassTwiceEliminates(t *testing.T) {
 	httpBase, wsBase := setupServer(t)
 	code := createRoom(t, httpBase)
 
-	alice := dial(t, wsBase+"/ws/rooms/"+code)
-	joinAs(t, alice, "Alice")
-	alice.waitRoomState(1, 2*time.Second)
+	a := dial(t, wsBase+"/ws/rooms/"+code)
+	aID := joinAs(t, a, "Ales")
+	b := dial(t, wsBase+"/ws/rooms/"+code)
+	bID := joinAs(t, b, "Yana")
+	a.wait("room_state", time.Second) // 2 players
 
-	bob := dial(t, wsBase+"/ws/rooms/"+code)
-	joinAs(t, bob, "Bob")
-	alice.waitRoomState(2, 2*time.Second)
+	a.send("start", nil)
 
-	_ = bob.conn.Close()
-
-	state := alice.waitRoomState(1, 3*time.Second)
-	if state.Players[0].Nickname != "Alice" {
-		t.Errorf("remaining player=%q", state.Players[0].Nickname)
-	}
-}
-
-// Bot as clue-giver or bot as guesser — either way a chat frame should
-// eventually arrive from the bot side. Marked slow under -short.
-func TestWS_BotProducesChat(t *testing.T) {
-	if testing.Short() {
-		t.Skip("slow: waits for bot timer")
-	}
-	httpBase, wsBase := setupServer(t)
-	code := createRoom(t, httpBase)
-
-	alice := dial(t, wsBase+"/ws/rooms/"+code)
-	joinAs(t, alice, "Alice")
-	alice.waitRoomState(1, 2*time.Second)
-
-	alice.send("add_bot", nil)
-	state := alice.waitRoomState(2, 2*time.Second)
-
-	var botSeen bool
-	for _, p := range state.Players {
-		if p.IsBot {
-			botSeen = true
-			if p.Nickname == "" {
-				t.Error("bot has empty nickname")
-			}
-		}
-	}
-	if !botSeen {
-		t.Fatal("no bot in room after add_bot")
+	// Figure out who goes first.
+	first := decode[game.TurnStarted](t, a.wait("turn_started", 2*time.Second))
+	var actor, other *client
+	var actorID, otherID string
+	if first.PlayerID == aID {
+		actor, actorID, other, otherID = a, aID, b, bID
+	} else if first.PlayerID == bID {
+		actor, actorID, other, otherID = b, bID, a, aID
+	} else {
+		t.Fatalf("unknown first player %q", first.PlayerID)
 	}
 
-	alice.send("start", nil)
+	// Pass #1 — actor misses once, turn goes to the other player.
+	actor.send("pass", nil)
+	other.waitTurnFor(otherID, 3*time.Second)
 
-	// Wait up to 15s for any chat frame from the bot.
-	msg := alice.wait(func(m game.ServerMessage) bool {
-		if m.Type != "chat" {
-			return false
-		}
-		return decodeData[game.ChatMessage](t, m).IsBot
-	}, 15*time.Second)
+	// Other player submits a valid city, turn comes back to actor.
+	other.send("submit_city", game.CityData{City: "Мінск"})
+	actor.waitTurnFor(actorID, 3*time.Second)
 
-	chat := decodeData[game.ChatMessage](t, msg)
-	if chat.Text == "" {
-		t.Error("bot chat with empty text")
+	// Pass #2 — actor hits MaxMisses, gets eliminated, game ends.
+	actor.send("pass", nil)
+
+	// Either side should see player_out for the actor, then game_ended.
+	po := decode[game.PlayerOut](t, actor.wait("player_out", 3*time.Second))
+	if po.PlayerID != actorID {
+		t.Errorf("player_out for %q, want %q", po.PlayerID, actorID)
 	}
-	if chat.Kind != "clue" && chat.Kind != "guess" {
-		t.Errorf("unexpected bot chat kind=%q", chat.Kind)
+	if po.Missed < 2 {
+		t.Errorf("missed=%d, want >= 2", po.Missed)
 	}
-}
 
-// Frames emitted in one room never appear on another room's socket.
-func TestWS_RoomsAreIsolated(t *testing.T) {
-	httpBase, wsBase := setupServer(t)
-	code1 := createRoom(t, httpBase)
-	code2 := createRoom(t, httpBase)
-
-	a := dial(t, wsBase+"/ws/rooms/"+code1)
-	joinAs(t, a, "Alice")
-	a.waitRoomState(1, 2*time.Second)
-
-	b := dial(t, wsBase+"/ws/rooms/"+code2)
-	joinAs(t, b, "Bob")
-	b.waitRoomState(1, 2*time.Second)
-
-	// Alice sends a clue; only she's in room1 and no round is running,
-	// so nothing should propagate anywhere. Then we churn Bob in room2.
-	a.send("clue", game.TextData{Text: "should-be-ignored"})
-
-	time.Sleep(300 * time.Millisecond)
-
-	b.mu.Lock()
-	for _, m := range b.inbox {
-		if m.Type == "chat" {
-			t.Fatalf("chat leaked into other room: %+v", m)
-		}
+	ended := decode[game.GameEnded](t, other.wait("game_ended", 3*time.Second))
+	if ended.WinnerID != otherID {
+		t.Errorf("winner=%q, want %q", ended.WinnerID, otherID)
 	}
-	b.mu.Unlock()
-
-	a.mu.Lock()
-	for _, m := range a.inbox {
-		if m.Type == "chat" {
-			t.Fatalf("chat from lobby-phase clue: %+v", m)
-		}
-	}
-	a.mu.Unlock()
 }

@@ -2,8 +2,6 @@ package game
 
 import "sync"
 
-// ClientHandle is implemented by the ws.Client. Kept as an interface so the
-// game package has no dependency on the transport layer.
 type ClientHandle interface {
 	Send(msg ServerMessage)
 }
@@ -13,7 +11,8 @@ type Player struct {
 	Nickname string
 	IsBot    bool
 	IsHost   bool
-	Score    int // guarded by Room.mu
+	Missed   int
+	Out      bool
 
 	mu     sync.RWMutex
 	client ClientHandle
@@ -31,7 +30,6 @@ func (p *Player) Send(m ServerMessage) {
 	}
 }
 
-// View builds a PlayerView; only call while holding Room.mu.
 func (p *Player) View() PlayerView {
 	p.mu.RLock()
 	online := p.client != nil
@@ -41,7 +39,8 @@ func (p *Player) View() PlayerView {
 		Nickname: p.Nickname,
 		IsBot:    p.IsBot,
 		IsHost:   p.IsHost,
-		Score:    p.Score,
+		Missed:   p.Missed,
+		Out:      p.Out,
 		Online:   p.IsBot || online,
 	}
 }

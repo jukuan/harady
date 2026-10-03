@@ -2,49 +2,39 @@ package game
 
 import (
 	"fmt"
-	"math/rand"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/yourname/harady/backend/internal/models"
-	"github.com/yourname/harady/backend/internal/store"
+	"github.com/jukuan/harady/backend/internal/store"
 )
 
 const (
-	PhaseLobby         = "lobby"
-	PhaseRoundActive   = "round_active"
-	PhaseRoundRevealed = "round_revealed"
-	PhaseEnded         = "ended"
+	PhaseLobby   = "lobby"
+	PhasePlaying = "playing"
+	PhaseEnded   = "ended"
 
-	MinPlayers     = 2
-	MaxPlayers     = 10
-	RoundDuration  = 90 * time.Second
-	RevealDuration = 4 * time.Second
-	MaxTextLength  = 120
+	MinPlayers = 2
+	MaxPlayers = 10
+	MaxMisses  = 2
+	MaxCityLen = 80
 )
 
-// Room is a single game instance. All mutations are guarded by mu.
-//
-// Concurrency contract:
-//   - Callers that hold r.mu (R or W) must use broadcastLocked.
-//   - Callers that don't hold r.mu must use BroadcastState or broadcast.
 type Room struct {
 	Code   string
 	HostID string
 	Phase  string
-	Round  int
 
 	Cities *store.CityStore
 
-	mu         sync.RWMutex
-	players    map[string]*Player
-	order      []string // join order; used for actor rotation
-	actorIdx   int
-	secret     *models.City
-	roundTimer *time.Timer
-	roundDone  chan struct{}
-	lastTouch  time.Time
+	mu        sync.RWMutex
+	players   map[string]*Player
+	order     []string
+	chain     []ChainEntry
+	chainSet  map[string]bool
+	required  rune
+	turnID    string
+	lastTouch time.Time
 }
 
 func newRoom(code string, cities *store.CityStore) *Room {
@@ -52,13 +42,13 @@ func newRoom(code string, cities *store.CityStore) *Room {
 		Code:      code,
 		Phase:     PhaseLobby,
 		players:   map[string]*Player{},
-		actorIdx:  -1,
+		chainSet:  map[string]bool{},
 		lastTouch: time.Now(),
 		Cities:    cities,
 	}
 }
 
-// ---------- player management ----------
+// ---------- players ----------
 
 func (r *Room) Join(p *Player, c ClientHandle) error {
 	r.mu.Lock()
@@ -81,8 +71,7 @@ func (r *Room) Join(p *Player, c ClientHandle) error {
 
 func (r *Room) Leave(playerID string) {
 	r.mu.Lock()
-	p, ok := r.players[playerID]
-	if !ok {
+	if _, ok := r.players[playerID]; !ok {
 		r.mu.Unlock()
 		return
 	}
@@ -93,54 +82,33 @@ func (r *Room) Leave(playerID string) {
 			break
 		}
 	}
-	wasActor := r.Phase == PhaseRoundActive && r.actorIDLocked() == playerID
 	if r.HostID == playerID && len(r.order) > 0 {
 		r.HostID = r.order[0]
 		if hp := r.players[r.HostID]; hp != nil {
 			hp.IsHost = true
 		}
 	}
-	if wasActor {
-		r.endRoundLocked("")
+	if r.Phase == PhasePlaying && r.turnID == playerID {
+		r.advanceTurnLocked()
 	}
-	_ = p
 	r.mu.Unlock()
 	r.BroadcastState()
 }
 
-// AddBotBy adds a bot, but only if hostID is the current host.
-func (r *Room) AddBotBy(hostID, nickname string) (*Player, error) {
+func (r *Room) AddBotBy(hostID string) (*Player, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if hostID != r.HostID {
 		return nil, fmt.Errorf("only host can add bots")
 	}
-	return r.addBotLocked(nickname)
-}
-
-func (r *Room) addBotLocked(nickname string) (*Player, error) {
 	if len(r.players) >= MaxPlayers {
 		return nil, fmt.Errorf("room full")
 	}
-	if nickname == "" {
-		nickname = pickBotName(r.players)
-	}
-	p := &Player{
-		ID:       "bot-" + randString(6),
-		Nickname: nickname,
-		IsBot:    true,
-	}
+	p := &Player{ID: "bot-" + randString(6), Nickname: pickBotName(r.players), IsBot: true}
 	r.players[p.ID] = p
 	r.order = append(r.order, p.ID)
 	r.lastTouch = time.Now()
 	return p, nil
-}
-
-func (r *Room) actorIDLocked() string {
-	if r.actorIdx < 0 || r.actorIdx >= len(r.order) {
-		return ""
-	}
-	return r.order[r.actorIdx]
 }
 
 func (r *Room) playerListLocked() []PlayerView {
@@ -153,30 +121,44 @@ func (r *Room) playerListLocked() []PlayerView {
 	return out
 }
 
+func (r *Room) activeOrderLocked() []string {
+	out := make([]string, 0, len(r.order))
+	for _, id := range r.order {
+		if p := r.players[id]; p != nil && !p.Out {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // ---------- snapshots ----------
 
 func (r *Room) snapshotLocked() RoomState {
-	actorID := r.actorIDLocked()
-	actorNick := ""
-	if p := r.players[actorID]; p != nil {
-		actorNick = p.Nickname
+	nick := ""
+	if p := r.players[r.turnID]; p != nil {
+		nick = p.Nickname
 	}
-	masked := ""
-	if r.secret != nil {
-		masked = maskCity(r.secret.Name)
+	letter := ""
+	if r.required != 0 {
+		letter = string(r.required)
 	}
+	players := r.playerListLocked()
+	if players == nil {
+		players = []PlayerView{}
+	}
+	chain := append([]ChainEntry{}, r.chain...) // non-nil even when empty
 	return RoomState{
-		Code:       r.Code,
-		HostID:     r.HostID,
-		Phase:      r.Phase,
-		Round:      r.Round,
-		ActorID:    actorID,
-		ActorNick:  actorNick,
-		MaskedCity: masked,
-		Players:    r.playerListLocked(),
-		MinPlayers: MinPlayers,
-		MaxPlayers: MaxPlayers,
-		Duration:   int(RoundDuration / time.Second),
+		Code:            r.Code,
+		HostID:          r.HostID,
+		Phase:           r.Phase,
+		Players:         players,
+		Chain:           chain,
+		RequiredLetter:  letter,
+		CurrentTurnID:   r.turnID,
+		CurrentTurnNick: nick,
+		MinPlayers:      MinPlayers,
+		MaxPlayers:      MaxPlayers,
+		MaxMisses:       MaxMisses,
 	}
 }
 
@@ -186,7 +168,6 @@ func (r *Room) Snapshot() RoomState {
 	return r.snapshotLocked()
 }
 
-// BroadcastState sends the current room_state to every human player.
 func (r *Room) BroadcastState() {
 	r.mu.RLock()
 	snap := r.snapshotLocked()
@@ -194,12 +175,12 @@ func (r *Room) BroadcastState() {
 	r.mu.RUnlock()
 }
 
-// PlayerCount / IdleSince are used by the hub GC.
 func (r *Room) PlayerCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.players)
 }
+
 func (r *Room) IdleSince() time.Time {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -208,7 +189,6 @@ func (r *Room) IdleSince() time.Time {
 
 // ---------- broadcasting ----------
 
-// broadcastLocked sends m to every non-bot player. Caller must hold r.mu.
 func (r *Room) broadcastLocked(m ServerMessage) {
 	for _, id := range r.order {
 		if p := r.players[id]; p != nil {
@@ -223,7 +203,7 @@ func (r *Room) broadcast(m ServerMessage) {
 	r.broadcastLocked(m)
 }
 
-// ---------- game loop ----------
+// ---------- game flow ----------
 
 func (r *Room) Start(byPlayerID string) error {
 	r.mu.Lock()
@@ -240,234 +220,200 @@ func (r *Room) Start(byPlayerID string) error {
 		return fmt.Errorf("need at least %d players", MinPlayers)
 	}
 	for _, p := range r.players {
-		p.Score = 0
+		p.Missed = 0
+		p.Out = false
 	}
-	r.Round = 0
-	r.actorIdx = rand.Intn(len(r.order))
+	r.chain = nil
+	r.chainSet = map[string]bool{}
+	r.required = 0
+	r.Phase = PhasePlaying
+	r.turnID = r.order[0]
+	r.lastTouch = time.Now()
+
+	firstID := r.turnID
+	firstNick := ""
+	if p := r.players[firstID]; p != nil {
+		firstNick = p.Nickname
+	}
+	r.broadcastLocked(ServerMessage{Type: "turn_started", Data: TurnStarted{
+		PlayerID: firstID, Nickname: firstNick, RequiredLetter: "", Round: 1,
+	}})
 	r.mu.Unlock()
 
 	r.BroadcastState()
-	go r.startRound()
+	r.maybeKickBot(firstID)
 	return nil
 }
 
-func (r *Room) startRound() {
+func (r *Room) maybeKickBot(playerID string) {
+	r.mu.RLock()
+	p := r.players[playerID]
+	active := r.Phase == PhasePlaying && r.turnID == playerID && p != nil && p.IsBot
+	r.mu.RUnlock()
+	if !active {
+		return
+	}
+	go r.runBotTurn(p)
+}
+
+func (r *Room) advanceTurnLocked() {
+	active := r.activeOrderLocked()
+	if len(active) == 0 {
+		r.endGameLocked("")
+		return
+	}
+	if len(active) == 1 {
+		r.endGameLocked(active[0])
+		return
+	}
+	cur := -1
+	for i, id := range active {
+		if id == r.turnID {
+			cur = i
+			break
+		}
+	}
+	next := 0
+	if cur >= 0 {
+		next = (cur + 1) % len(active)
+	}
+	r.turnID = active[next]
+	nick := ""
+	if p := r.players[r.turnID]; p != nil {
+		nick = p.Nickname
+	}
+	letter := ""
+	if r.required != 0 {
+		letter = string(r.required)
+	}
+	r.broadcastLocked(ServerMessage{Type: "turn_started", Data: TurnStarted{
+		PlayerID: r.turnID, Nickname: nick, RequiredLetter: letter, Round: len(r.chain) + 1,
+	}})
+}
+
+func (r *Room) endGameLocked(winnerID string) {
+	r.Phase = PhaseEnded
+	winnerNick := ""
+	if winnerID != "" {
+		if p := r.players[winnerID]; p != nil {
+			winnerNick = p.Nickname
+		}
+	}
+	players := r.playerListLocked()
+	if players == nil {
+		players = []PlayerView{}
+	}
+	chain := append([]ChainEntry{}, r.chain...)
+	r.broadcastLocked(ServerMessage{Type: "game_ended", Data: GameEnded{
+		WinnerID:   winnerID,
+		WinnerNick: winnerNick,
+		Players:    players,
+		Chain:      chain,
+	}})
+}
+
+func (r *Room) sendRejectedLocked(playerID, reason, text string) {
+	if p := r.players[playerID]; p != nil {
+		p.Send(ServerMessage{Type: "chain_rejected", Data: ChainRejected{Reason: reason, Text: text}})
+	}
+}
+
+// SubmitCity is called when the player whose turn it is proposes a city.
+func (r *Room) SubmitCity(playerID, raw string) {
 	r.mu.Lock()
-
-	if len(r.order) < MinPlayers {
-		r.Phase = PhaseEnded
-		snap := r.snapshotLocked()
-		r.broadcastLocked(ServerMessage{Type: "game_ended", Data: snap})
+	if r.Phase != PhasePlaying || playerID != r.turnID {
 		r.mu.Unlock()
 		return
 	}
-
-	city, err := r.Cities.Random()
-	if err != nil {
-		r.Phase = PhaseEnded
+	p := r.players[playerID]
+	if p == nil || p.Out {
 		r.mu.Unlock()
-		r.broadcast(ServerMessage{
-			Type: "error",
-			Data: ErrorData{Message: "no cities in DB — run `harady-cli seed`"},
-		})
 		return
 	}
-
-	r.Round++
-	r.Phase = PhaseRoundActive
-	r.secret = city
-
-	actorID := r.actorIDLocked()
-	actor := r.players[actorID]
-	actorNick := ""
-	if actor != nil {
-		actorNick = actor.Nickname
-	}
-
-	r.broadcastLocked(ServerMessage{
-		Type: "round_started",
-		Data: RoundStarted{
-			ActorID:    actorID,
-			ActorNick:  actorNick,
-			MaskedCity: maskCity(city.Name),
-			Round:      r.Round,
-			Duration:   int(RoundDuration / time.Second),
-		},
-	})
-
-	// The secret is sent ONLY to the human actor.
-	if actor != nil && !actor.IsBot {
-		actor.Send(ServerMessage{
-			Type: "your_word",
-			Data: YourWord{City: city.Name, Region: city.Region},
-		})
-	}
-
-	// Schedule round timeout.
-	if r.roundTimer != nil {
-		r.roundTimer.Stop()
-	}
-	if r.roundDone != nil {
-		close(r.roundDone)
-	}
-	r.roundDone = make(chan struct{})
-	tickDone := r.roundDone
-	r.roundTimer = time.AfterFunc(RoundDuration, func() {
-		r.mu.Lock()
-		if r.Phase == PhaseRoundActive {
-			r.endRoundLocked("")
-		}
+	city := strings.TrimSpace(raw)
+	if city == "" || len([]rune(city)) > MaxCityLen {
 		r.mu.Unlock()
-	})
-	go r.tickLoop(tickDone)
-
-	// Snapshot for bot goroutines.
-	playersCopy := make([]*Player, 0, len(r.players))
-	for _, id := range r.order {
-		if p := r.players[id]; p != nil {
-			playersCopy = append(playersCopy, p)
-		}
+		return
 	}
-	secretCopy := *city
-
+	if r.required != 0 && FirstLetter(city) != r.required {
+		r.sendRejectedLocked(playerID, "wrong_letter", city)
+		r.mu.Unlock()
+		return
+	}
+	norm := NormalizeCity(city)
+	if r.chainSet[norm] {
+		r.sendRejectedLocked(playerID, "already_used", city)
+		r.mu.Unlock()
+		return
+	}
 	r.mu.Unlock()
 
-	for _, p := range playersCopy {
-		if !p.IsBot {
-			continue
-		}
-		if p.ID == actorID {
-			go r.runActorBot(p, &secretCopy)
-		} else {
-			go r.runGuesserBot(p)
-		}
+	exists, err := r.Cities.Exists(city)
+	if err != nil {
+		return
 	}
+
+	r.mu.Lock()
+	if r.Phase != PhasePlaying || playerID != r.turnID {
+		r.mu.Unlock()
+		return
+	}
+	p = r.players[playerID]
+	if p == nil || p.Out {
+		r.mu.Unlock()
+		return
+	}
+	if !exists {
+		r.sendRejectedLocked(playerID, "not_in_db", city)
+		r.mu.Unlock()
+		return
+	}
+	entry := ChainEntry{PlayerID: p.ID, Nickname: p.Nickname, City: city, IsBot: p.IsBot}
+	r.chain = append(r.chain, entry)
+	r.chainSet[norm] = true
+	r.required = LastMeaningfulLetter(city)
+
+	letter := ""
+	if r.required != 0 {
+		letter = string(r.required)
+	}
+	r.broadcastLocked(ServerMessage{Type: "chain_added", Data: ChainAdded{
+		Entry: entry, NextRequiredLetter: letter,
+	}})
+
+	r.advanceTurnLocked()
+	nextID := r.turnID
+	r.mu.Unlock()
 
 	r.BroadcastState()
+	r.maybeKickBot(nextID)
 }
 
-func (r *Room) HandleClue(playerID, text string) {
-	r.mu.RLock()
-	phase := r.Phase
-	actorID := r.actorIDLocked()
-	secret := r.secret
-	p := r.players[playerID]
-	r.mu.RUnlock()
-
-	if phase != PhaseRoundActive || p == nil {
-		return
-	}
-	if playerID != actorID {
-		p.Send(ServerMessage{Type: "error", Data: ErrorData{Message: "only the actor can give clues"}})
-		return
-	}
-
-	text = strings.TrimSpace(text)
-	if text == "" || len([]rune(text)) > MaxTextLength {
-		return
-	}
-	if secret != nil {
-		low := strings.ToLower(text)
-		if strings.Contains(low, strings.ToLower(secret.Name)) {
-			p.Send(ServerMessage{Type: "error", Data: ErrorData{Message: "clue cannot contain the city name"}})
-			return
-		}
-	}
-
-	r.broadcast(ServerMessage{Type: "chat", Data: ChatMessage{
-		PlayerID: p.ID, Nickname: p.Nickname, Text: text, Kind: "clue",
-		IsBot: p.IsBot, Ts: time.Now().UnixMilli(),
-	}})
-}
-
-func (r *Room) HandleGuess(playerID, text string) {
-	r.mu.RLock()
-	phase := r.Phase
-	actorID := r.actorIDLocked()
-	secret := r.secret
-	p := r.players[playerID]
-	r.mu.RUnlock()
-
-	if phase != PhaseRoundActive || p == nil || playerID == actorID {
-		return
-	}
-
-	text = strings.TrimSpace(text)
-	if text == "" || len([]rune(text)) > MaxTextLength {
-		return
-	}
-
-	r.broadcast(ServerMessage{Type: "chat", Data: ChatMessage{
-		PlayerID: p.ID, Nickname: p.Nickname, Text: text, Kind: "guess",
-		IsBot: p.IsBot, Ts: time.Now().UnixMilli(),
-	}})
-
-	if secret == nil || !strings.EqualFold(text, secret.Name) {
-		return
-	}
-
+// Pass is when a player gives up their turn.
+func (r *Room) Pass(playerID string) {
 	r.mu.Lock()
-	if r.Phase == PhaseRoundActive {
-		if w := r.players[playerID]; w != nil {
-			w.Score += 100
-		}
-		if a := r.players[actorID]; a != nil {
-			a.Score += 50
-		}
-		r.endRoundLocked(playerID)
-	}
-	r.mu.Unlock()
-}
-
-// endRoundLocked must be called with r.mu held.
-func (r *Room) endRoundLocked(winnerID string) {
-	if r.roundTimer != nil {
-		r.roundTimer.Stop()
-		r.roundTimer = nil
-	}
-	if r.roundDone != nil {
-		close(r.roundDone)
-		r.roundDone = nil
-	}
-	city := r.secret
-	if city == nil {
-		r.Phase = PhaseEnded
+	if r.Phase != PhasePlaying || playerID != r.turnID {
+		r.mu.Unlock()
 		return
 	}
-	r.Phase = PhaseRoundRevealed
-
-	r.broadcastLocked(ServerMessage{
-		Type: "round_ended",
-		Data: RoundEnded{
-			WinnerID: winnerID,
-			City:     city.Name,
-			Scores:   r.playerListLocked(),
-		},
-	})
-
-	if winnerID != "" {
-		winnerNick := ""
-		if w := r.players[winnerID]; w != nil {
-			winnerNick = w.Nickname
-		}
-		r.broadcastLocked(ServerMessage{
-			Type: "correct_guess",
-			Data: CorrectGuess{PlayerID: winnerID, Nickname: winnerNick, City: city.Name},
-		})
-	}
-
-	if len(r.order) > 0 {
-		r.actorIdx = (r.actorIdx + 1) % len(r.order)
-	}
-
-	time.AfterFunc(RevealDuration, func() {
-		r.mu.Lock()
-		cont := r.Phase == PhaseRoundRevealed && len(r.players) >= MinPlayers
+	p := r.players[playerID]
+	if p == nil || p.Out {
 		r.mu.Unlock()
-		if cont {
-			r.startRound()
-		}
-	})
+		return
+	}
+	p.Missed++
+	if p.Missed >= MaxMisses {
+		p.Out = true
+		r.broadcastLocked(ServerMessage{Type: "player_out", Data: PlayerOut{
+			PlayerID: p.ID, Nickname: p.Nickname, Missed: p.Missed,
+		}})
+	}
+	r.advanceTurnLocked()
+	nextID := r.turnID
+	r.mu.Unlock()
+
+	r.BroadcastState()
+	r.maybeKickBot(nextID)
 }
 
 func (r *Room) ForceEnd(byPlayerID string) {
@@ -476,47 +422,7 @@ func (r *Room) ForceEnd(byPlayerID string) {
 		r.mu.Unlock()
 		return
 	}
-	if r.roundTimer != nil {
-		r.roundTimer.Stop()
-		r.roundTimer = nil
-	}
-	r.Phase = PhaseEnded
-	snap := r.snapshotLocked()
+	r.endGameLocked("")
 	r.mu.Unlock()
-
-	r.broadcast(ServerMessage{Type: "game_ended", Data: snap})
-}
-
-// tickLoop sends a tick frame every second until the round ends or the
-// provided channel is closed. Duration is fixed for the whole round.
-func (r *Room) tickLoop(done <-chan struct{}) {
-	deadline := time.Now().Add(RoundDuration)
-	dur := int(RoundDuration / time.Second)
-	t := time.NewTicker(time.Second)
-	defer t.Stop()
-	for {
-		select {
-		case <-done:
-			return
-		case now := <-t.C:
-			left := int(deadline.Sub(now).Seconds())
-			if left < 0 {
-				left = 0
-			}
-			r.mu.RLock()
-			round := r.Round
-			active := r.Phase == PhaseRoundActive
-			r.mu.RUnlock()
-			if !active {
-				return
-			}
-			r.broadcast(ServerMessage{
-				Type: "tick",
-				Data: TickData{SecondsLeft: left, Round: round, Duration: dur},
-			})
-			if left == 0 {
-				return
-			}
-		}
-	}
+	r.BroadcastState()
 }

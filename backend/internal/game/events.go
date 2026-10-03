@@ -16,8 +16,8 @@ type JoinData struct {
 	Nickname string `json:"nickname"`
 }
 
-type TextData struct {
-	Text string `json:"text"`
+type CityData struct {
+	City string `json:"city"`
 }
 
 type PlayerView struct {
@@ -25,62 +25,60 @@ type PlayerView struct {
 	Nickname string `json:"nickname"`
 	IsBot    bool   `json:"is_bot"`
 	IsHost   bool   `json:"is_host"`
-	Score    int    `json:"score"`
+	Missed   int    `json:"missed"`
+	Out      bool   `json:"out"`
 	Online   bool   `json:"online"`
 }
 
-type RoomState struct {
-	Code       string       `json:"code"`
-	HostID     string       `json:"host_id"`
-	Phase      string       `json:"phase"`
-	Round      int          `json:"round"`
-	ActorID    string       `json:"actor_id"`
-	ActorNick  string       `json:"actor_nickname"`
-	MaskedCity string       `json:"masked_city"`
-	Players    []PlayerView `json:"players"`
-	MinPlayers int          `json:"min_players"`
-	MaxPlayers int          `json:"max_players"`
-	Duration   int          `json:"duration"`
-}
-
-type RoundStarted struct {
-	ActorID    string `json:"actor_id"`
-	ActorNick  string `json:"actor_nickname"`
-	MaskedCity string `json:"masked_city"`
-	Round      int    `json:"round"`
-	Duration   int    `json:"duration"`
-}
-
-type TickData struct {
-	SecondsLeft int `json:"seconds_left"`
-	Round       int `json:"round"`
-	Duration    int `json:"duration"`
-}
-
-type YourWord struct {
-	City   string `json:"city"`
-	Region string `json:"region,omitempty"`
-}
-
-type ChatMessage struct {
-	PlayerID string `json:"player_id"`
-	Nickname string `json:"nickname"`
-	Text     string `json:"text"`
-	Kind     string `json:"kind"` // clue | guess
-	IsBot    bool   `json:"is_bot"`
-	Ts       int64  `json:"ts"`
-}
-
-type CorrectGuess struct {
+type ChainEntry struct {
 	PlayerID string `json:"player_id"`
 	Nickname string `json:"nickname"`
 	City     string `json:"city"`
+	IsBot    bool   `json:"is_bot"`
 }
 
-type RoundEnded struct {
-	WinnerID string       `json:"winner_id,omitempty"`
-	City     string       `json:"city"`
-	Scores   []PlayerView `json:"scores"`
+type RoomState struct {
+	Code            string       `json:"code"`
+	HostID          string       `json:"host_id"`
+	Phase           string       `json:"phase"` // lobby | playing | ended
+	Players         []PlayerView `json:"players"`
+	Chain           []ChainEntry `json:"chain"`
+	RequiredLetter  string       `json:"required_letter"`
+	CurrentTurnID   string       `json:"current_turn_id"`
+	CurrentTurnNick string       `json:"current_turn_nickname"`
+	MinPlayers      int          `json:"min_players"`
+	MaxPlayers      int          `json:"max_players"`
+	MaxMisses       int          `json:"max_misses"`
+}
+
+type TurnStarted struct {
+	PlayerID       string `json:"player_id"`
+	Nickname       string `json:"nickname"`
+	RequiredLetter string `json:"required_letter"`
+	Round          int    `json:"round"`
+}
+
+type ChainAdded struct {
+	Entry              ChainEntry `json:"entry"`
+	NextRequiredLetter string     `json:"next_required_letter"`
+}
+
+type ChainRejected struct {
+	Reason string `json:"reason"` // wrong_letter | already_used | not_in_db | empty
+	Text   string `json:"text"`
+}
+
+type PlayerOut struct {
+	PlayerID string `json:"player_id"`
+	Nickname string `json:"nickname"`
+	Missed   int    `json:"missed"`
+}
+
+type GameEnded struct {
+	WinnerID   string       `json:"winner_id,omitempty"`
+	WinnerNick string       `json:"winner_nickname,omitempty"`
+	Players    []PlayerView `json:"players"`
+	Chain      []ChainEntry `json:"chain"`
 }
 
 type ErrorData struct {
