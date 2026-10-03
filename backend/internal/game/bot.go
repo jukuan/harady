@@ -8,7 +8,7 @@ import (
 // runBotTurn: waits a beat to feel human, then either submits a city or
 // (rarely, and never on the opening move) gives up.
 func (r *Room) runBotTurn(p *Player) {
-	time.Sleep(time.Duration(2000+rand.Intn(3000)) * time.Millisecond)
+	time.Sleep(time.Duration(300 + rand.Intn(900)) * time.Millisecond)
 
 	r.mu.RLock()
 	if r.Phase != PhasePlaying || r.turnID != p.ID {
