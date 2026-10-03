@@ -25,9 +25,12 @@ func NewRouter(cfg *config.Config, hub *game.Hub, cities *store.CityStore) *gin.
 		c.JSON(http.StatusOK, gin.H{"ok": true, "language": cfg.Language})
 	})
 
+	// 1 room per 3 seconds, burst 5 — enough for humans, tough on scripts.
+	roomLimiter := newLimiter(1.0/3.0, 5)
+
 	api := r.Group("/api")
 	{
-		api.POST("/rooms", func(c *gin.Context) {
+		api.POST("/rooms", rateLimit(roomLimiter), func(c *gin.Context) {
 			room := hub.CreateRoom()
 			c.JSON(http.StatusOK, gin.H{
 				"code":   room.Code,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import type { RoomState } from '../types'
 import { S } from '../strings'
+import ChainRow from './ChainRow'
 
 interface Props {
   room: RoomState
@@ -30,6 +31,7 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
   const [rejToast, setRejToast] = useState<string | null>(null)
   const [outToast, setOutToast] = useState<string | null>(null)
   const [passToast, setPassToast] = useState<string | null>(null)
+  const [copiedCode, setCopiedCode] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Turn change clears the input.
@@ -78,6 +80,13 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
     setText('')
   }
 
+
+  const copyCode = async () => {
+    try { await navigator.clipboard.writeText(room.code) } catch { /* ignore */ }
+    setCopiedCode(true)
+    window.setTimeout(() => setCopiedCode(false), 1500)
+  }
+
   const liveHint = computeLiveHint(text, room.required_letter)
 
   return (
@@ -85,9 +94,15 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
       {/* Top bar */}
       <header className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur border-b border-slate-200">
         <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-          <div className="text-xs uppercase tracking-wider text-slate-500 font-extrabold truncate">
-            {S.appName} · {room.code}
-          </div>
+          <button
+            className="text-xs uppercase tracking-wider text-slate-500 font-extrabold truncate
+                       hover:text-primary-dark transition-colors"
+            onClick={copyCode}
+            title={S.copyLink}
+          >
+            {S.appName} · <span className="text-slate-900">{room.code}</span>
+            {copiedCode && <span className="ml-2 text-success-dark">✓</span>}
+          </button>
           <button className="btn btn-ghost !px-3 !py-1.5 text-xs" onClick={onExit}>
             {S.leaveRoom}
           </button>
@@ -183,23 +198,6 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
   )
 }
 
-function ChainRow({ index, entry, isMine }: { index: number; entry: import('../types').ChainEntry; isMine: boolean }) {
-  return (
-    <div className={'flex ' + (isMine ? 'justify-end' : 'justify-start')}>
-      <div className={
-        'max-w-[85%] rounded-2xl border-2 px-3 py-2 animate-pop ' +
-        (isMine ? 'bg-primary/10 border-primary/30' : 'bg-white border-slate-200')
-      }>
-        <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-500">
-          <span className="text-slate-400">{index}.</span>
-          <span className="text-slate-700">{entry.nickname}</span>
-          {entry.is_bot && <span className="chip chip-bot">бот</span>}
-        </div>
-        <div className="text-lg font-black text-slate-900">{entry.city}</div>
-      </div>
-    </div>
-  )
-}
 
 function computeLiveHint(text: string, requiredLetter: string): string | null {
   const t = text.trim()

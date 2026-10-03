@@ -105,6 +105,13 @@ func (c *Client) writePump() {
 				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
+			// Special case: server_shutdown triggers a clean close so the
+			// browser knows to reconnect rather than reporting a hard drop.
+			if msg.Type == "server_shutdown" {
+				_ = c.conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseServiceRestart, "restarting"))
+				return
+			}
 			if err := c.conn.WriteJSON(msg); err != nil {
 				return
 			}

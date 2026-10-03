@@ -3,11 +3,27 @@ import { S } from '../strings'
 
 interface Props { onExit: () => void }
 
+import { useState } from 'react'
+
 export default function EndScreen({ onExit }: Props) {
+  const [copied, setCopied] = useState(false)
   const finalState = useStore((s) => s.finalState)
   const winner = useStore((s) => s.winner)
 
   if (!finalState) return null
+
+  const copyResult = async () => {
+    const lines = [
+      `Harady · ${chain.length} гарадоў`,
+      chain.map((e) => e.city).join(' → '),
+      winner ? `🏆 ${winner.nickname}` : '🤝 Нічыя',
+    ]
+    const text = lines.join('\n')
+    try { await navigator.clipboard.writeText(text) } catch { /* ignore */ }
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1500)
+  }
+
 
   const chain = finalState.chain ?? []
   const players = finalState.players ?? []
@@ -59,7 +75,10 @@ export default function EndScreen({ onExit }: Props) {
         </ul>
       </section>
 
-      <div className="mt-auto">
+      <div className="mt-auto flex flex-col gap-3">
+        <button className="btn btn-secondary w-full" onClick={copyResult}>
+          {copied ? S.copied : S.shareResult}
+        </button>
         <button className="btn btn-primary w-full" onClick={onExit}>{S.backHome}</button>
       </div>
     </div>

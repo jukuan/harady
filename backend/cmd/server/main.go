@@ -51,6 +51,10 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
+	// Tell every client we are going down so they reconnect with intent.
+	hub.Shutdown()
+	time.Sleep(200 * time.Millisecond) // let the close frames flush
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)

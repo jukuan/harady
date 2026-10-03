@@ -57,6 +57,7 @@ export const S = {
   chainLength: 'Даўжыня ланцуга',
   playAgain: 'Гуляць зноў',
   backHome: 'На галоўную',
+  shareResult: 'Скапіраваць вынік',
 
   connecting: 'Злучэнне…',
   reconnecting: 'Перападключэнне…',

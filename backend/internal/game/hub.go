@@ -77,3 +77,19 @@ func (h *Hub) cleanupLoop() {
 func newRoomCode() string {
 	return uuid.New().String()[:6]
 }
+
+// Shutdown sends a clean WebSocket close to every connected client so that
+// browsers report "server restarting" rather than a hard connection drop.
+// Called from cmd/server on SIGTERM/SIGINT before http.Server.Shutdown.
+func (h *Hub) Shutdown() {
+	h.mu.Lock()
+	rooms := make([]*Room, 0, len(h.rooms))
+	for _, r := range h.rooms {
+		rooms = append(rooms, r)
+	}
+	h.mu.Unlock()
+
+	for _, r := range rooms {
+		r.CloseAll()
+	}
+}

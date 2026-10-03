@@ -433,3 +433,19 @@ func (r *Room) ForceEnd(byPlayerID string) {
 	r.mu.Unlock()
 	r.BroadcastState()
 }
+
+// CloseAll sends a "service restart" close to every human player.
+// Called by Hub.Shutdown on SIGTERM.
+func (r *Room) CloseAll() {
+	r.mu.RLock()
+	players := make([]*Player, 0, len(r.players))
+	for _, id := range r.order {
+		if p := r.players[id]; p != nil && !p.IsBot {
+			players = append(players, p)
+		}
+	}
+	r.mu.RUnlock()
+	for _, p := range players {
+		p.Send(ServerMessage{Type: "server_shutdown", Data: nil})
+	}
+}
