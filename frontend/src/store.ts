@@ -26,6 +26,7 @@ interface State {
   setTurn: (t: TurnStarted) => void
   appendChain: (e: ChainEntry, nextLetter: string) => void
   reject: (r: ChainRejected) => void
+  clearRejection: () => void
   playerOut: (o: PlayerOut) => void
   playerPassed: (p: PlayerPassed) => void
   gameEnded: (r: RoomState, winnerID?: string, winnerNick?: string) => void
@@ -61,6 +62,7 @@ export const useStore = create<State>((set) => ({
     return { room: { ...s.room, chain, required_letter: nextLetter } }
   }),
   reject: (r) => set({ lastRejection: { reason: r.reason, text: r.text, at: Date.now() } }),
+  clearRejection: () => set({ lastRejection: null }),
   playerOut: (o) => set((s) => {
     if (!s.room) return { lastOut: o }
     const players = s.room.players.map((p) =>

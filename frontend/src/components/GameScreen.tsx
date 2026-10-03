@@ -43,6 +43,10 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
   }, [chain.length])
 
   // Show rejection toast for 2s.
+  // Keyed on the rejection object only. The store clears `lastRejection`
+  // whenever a move succeeds or the turn advances, so this effect fires
+  // exactly once per fresh rejection and never re-shows a stale message when
+  // `room.required_letter` changes.
   useEffect(() => {
     if (!rejection) return
     const label =
@@ -53,7 +57,8 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
     setRejToast(label)
     const t = window.setTimeout(() => setRejToast(null), 2000)
     return () => window.clearTimeout(t)
-  }, [rejection?.at, rejection?.reason, room.required_letter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rejection])
 
   // Show "X is out" toast for 3s.
   useEffect(() => {
@@ -76,6 +81,7 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
 
   const submit = () => {
     if (!canSubmit) return
+    setRejToast(null)          // hide any previous error while the server checks
     onSubmitCity(text.trim())
     setText('')
   }

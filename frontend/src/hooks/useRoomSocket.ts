@@ -13,8 +13,8 @@ export function useRoomSocket(code: string | undefined, nickname: string) {
         switch (m.type) {
           case 'joined':         s.setJoined(m.data.player_id, m.data.is_host); break
           case 'room_state':     s.setRoom(m.data); break
-          case 'turn_started':   s.setTurn(m.data); break
-          case 'chain_added':    s.appendChain(m.data.entry, m.data.next_required_letter); break
+          case 'turn_started':   s.clearRejection(); s.setTurn(m.data); break
+          case 'chain_added':    s.clearRejection(); s.appendChain(m.data.entry, m.data.next_required_letter); break
           case 'chain_rejected': s.reject(m.data); break
           case 'player_passed':  s.playerPassed(m.data); break
           case 'player_out':     s.playerOut(m.data); break
