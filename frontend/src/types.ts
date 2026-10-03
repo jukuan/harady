@@ -54,6 +54,14 @@ export interface PlayerOut {
   missed: number
 }
 
+export interface PlayerPassed {
+  player_id: string
+  nickname: string
+  missed: number
+  is_bot: boolean
+}
+
+
 export interface GameEnded {
   winner_id?: string
   winner_nickname?: string
@@ -67,6 +75,7 @@ export type ServerMessage =
   | { type: 'turn_started';   data: TurnStarted }
   | { type: 'chain_added';    data: ChainAdded }
   | { type: 'chain_rejected'; data: ChainRejected }
+  | { type: 'player_passed';  data: PlayerPassed }
   | { type: 'player_out';     data: PlayerOut }
   | { type: 'game_ended';     data: GameEnded }
   | { type: 'error';          data: { message: string } }

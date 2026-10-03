@@ -74,6 +74,14 @@ type PlayerOut struct {
 	Missed   int    `json:"missed"`
 }
 
+type PlayerPassed struct {
+	PlayerID string `json:"player_id"`
+	Nickname string `json:"nickname"`
+	Missed   int    `json:"missed"`
+	IsBot    bool   `json:"is_bot"`
+}
+
+
 type GameEnded struct {
 	WinnerID   string       `json:"winner_id,omitempty"`
 	WinnerNick string       `json:"winner_nickname,omitempty"`

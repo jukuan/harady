@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// runBotTurn: waits a beat to feel human, then either submits a valid city or
-// gives up. Occasionally passes even when it could play, so it's beatable.
+// runBotTurn: waits a beat to feel human, then either submits a city or
+// (rarely, and never on the opening move) gives up.
 func (r *Room) runBotTurn(p *Player) {
 	time.Sleep(time.Duration(2000+rand.Intn(3000)) * time.Millisecond)
 
@@ -20,13 +20,16 @@ func (r *Room) runBotTurn(p *Player) {
 		return
 	}
 	letter := r.required
+	chainLen := len(r.chain)
 	used := make([]string, 0, len(r.chainSet))
 	for k := range r.chainSet {
 		used = append(used, k)
 	}
 	r.mu.RUnlock()
 
-	if rand.Float64() < 0.15 {
+	// Never pass on the opening move — the first player can play any city.
+	// After that, pass with a small probability so the bot is beatable.
+	if chainLen > 0 && rand.Float64() < 0.05 {
 		r.Pass(p.ID)
 		return
 	}

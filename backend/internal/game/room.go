@@ -319,6 +319,8 @@ func (r *Room) sendRejectedLocked(playerID, reason, text string) {
 }
 
 // SubmitCity is called when the player whose turn it is proposes a city.
+// The input is matched against the DB with typo tolerance; the canonical
+// DB name is what goes into the chain.
 func (r *Room) SubmitCity(playerID, raw string) {
 	r.mu.Lock()
 	if r.Phase != PhasePlaying || playerID != r.turnID {
@@ -340,18 +342,20 @@ func (r *Room) SubmitCity(playerID, raw string) {
 		r.mu.Unlock()
 		return
 	}
-	norm := NormalizeCity(city)
-	if r.chainSet[norm] {
-		r.sendRejectedLocked(playerID, "already_used", city)
+	r.mu.Unlock()
+
+	matched, err := r.Cities.FindSimilar(city)
+	if err != nil || matched == nil {
+		r.mu.Lock()
+		if r.Phase == PhasePlaying && playerID == r.turnID {
+			r.sendRejectedLocked(playerID, "not_in_db", city)
+		}
 		r.mu.Unlock()
 		return
 	}
-	r.mu.Unlock()
 
-	exists, err := r.Cities.Exists(city)
-	if err != nil {
-		return
-	}
+	canonical := matched.Name
+	norm := NormalizeCity(canonical)
 
 	r.mu.Lock()
 	if r.Phase != PhasePlaying || playerID != r.turnID {
@@ -363,15 +367,15 @@ func (r *Room) SubmitCity(playerID, raw string) {
 		r.mu.Unlock()
 		return
 	}
-	if !exists {
-		r.sendRejectedLocked(playerID, "not_in_db", city)
+	if r.chainSet[norm] {
+		r.sendRejectedLocked(playerID, "already_used", canonical)
 		r.mu.Unlock()
 		return
 	}
-	entry := ChainEntry{PlayerID: p.ID, Nickname: p.Nickname, City: city, IsBot: p.IsBot}
+	entry := ChainEntry{PlayerID: p.ID, Nickname: p.Nickname, City: canonical, IsBot: p.IsBot}
 	r.chain = append(r.chain, entry)
 	r.chainSet[norm] = true
-	r.required = LastMeaningfulLetter(city)
+	r.required = LastMeaningfulLetter(canonical)
 
 	letter := ""
 	if r.required != 0 {
@@ -402,6 +406,9 @@ func (r *Room) Pass(playerID string) {
 		return
 	}
 	p.Missed++
+	r.broadcastLocked(ServerMessage{Type: "player_passed", Data: PlayerPassed{
+		PlayerID: p.ID, Nickname: p.Nickname, Missed: p.Missed, IsBot: p.IsBot,
+	}})
 	if p.Missed >= MaxMisses {
 		p.Out = true
 		r.broadcastLocked(ServerMessage{Type: "player_out", Data: PlayerOut{

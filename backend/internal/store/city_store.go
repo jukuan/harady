@@ -246,8 +246,47 @@ func (s *CityStore) FindByFirstLetter(letter rune, exclude []string, limit int) 
 	return out, rows.Err()
 }
 
-// Wipe removes every city. Used by `harady-cli reseed`.
+// Wipe removes every city and resets the autoincrement counter.
+// Used by `harady-cli reseed`.
 func (s *CityStore) Wipe() error {
-	_, err := s.db.Exec(`DELETE FROM cities`)
-	return err
+	if _, err := s.db.Exec(`DELETE FROM cities`); err != nil {
+		return err
+	}
+	_, _ = s.db.Exec(`DELETE FROM sqlite_sequence WHERE name = 'cities'`)
+	return nil
+}
+
+
+// FindSimilar returns the DB entry that best matches the input, allowing
+// common typos: the first letter must match, and the total Levenshtein
+// distance must be <= 2 (case-insensitive, Unicode-aware).
+//
+// This is how "Минск", "Менск", and "Мінск" all resolve to the canonical
+// Belarusian "Мінск" that lives in the DB.
+func (s *CityStore) FindSimilar(input string) (*models.City, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil, ErrNotFound
+	}
+	wantFirst := firstLetterLower(input)
+	all, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var best *models.City
+	bestDist := 1 << 30
+	for _, c := range all {
+		if firstLetterLower(c.Name) != wantFirst {
+			continue
+		}
+		d := levenshtein(input, c.Name)
+		if d <= 2 && d < bestDist {
+			bestDist = d
+			best = c
+		}
+	}
+	if best == nil {
+		return nil, ErrNotFound
+	}
+	return best, nil
 }

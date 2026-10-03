@@ -15,6 +15,7 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
   const me = useStore((s) => s.playerId)
   const rejection = useStore((s) => s.lastRejection)
   const lastOut = useStore((s) => s.lastOut)
+  const lastPassed = useStore((s) => s.lastPassed)
 
   // Defensive: JSON from Go may deliver `null` where we expect an array.
   const players = room.players ?? []
@@ -28,6 +29,7 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
   const [text, setText] = useState('')
   const [rejToast, setRejToast] = useState<string | null>(null)
   const [outToast, setOutToast] = useState<string | null>(null)
+  const [passToast, setPassToast] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Turn change clears the input.
@@ -58,6 +60,15 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
     const t = window.setTimeout(() => setOutToast(null), 3000)
     return () => window.clearTimeout(t)
   }, [lastOut?.player_id, lastOut?.missed])
+
+  // Show "X passed" toast for 2.5s (only if they are not eliminated yet).
+  useEffect(() => {
+    if (!lastPassed) return
+    if (lastPassed.missed >= room.max_misses) return // player_out handles it
+    setPassToast(S.passedTurn(lastPassed.nickname, lastPassed.missed, room.max_misses))
+    const t = window.setTimeout(() => setPassToast(null), 2500)
+    return () => window.clearTimeout(t)
+  }, [lastPassed?.player_id, lastPassed?.missed, room.max_misses])
 
   const canSubmit = isMyTurn && !iAmOut && text.trim().length > 0
 
@@ -113,6 +124,11 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
         {rejToast && (
           <div className="bg-danger text-white rounded-2xl px-4 py-2 font-extrabold shadow-lg animate-pop">
             {rejToast}
+          </div>
+        )}
+        {passToast && (
+          <div className="bg-slate-700 text-white rounded-2xl px-4 py-2 font-extrabold shadow-lg animate-pop">
+            {passToast}
           </div>
         )}
         {outToast && (
