@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"unicode"
 	"encoding/json"
 	"errors"
 	"math/rand"
@@ -258,29 +259,78 @@ func (s *CityStore) Wipe() error {
 
 
 // FindSimilar returns the DB entry that best matches the input, allowing
-// common typos: the first letter must match, and the total Levenshtein
-// distance must be <= 2 (case-insensitive, Unicode-aware).
+// typos only in the middle of the word.
 //
-// This is how "Минск", "Менск", and "Мінск" all resolve to the canonical
-// Belarusian "Мінск" that lives in the DB.
+// Rules:
+//   - First letter must match (after normalization).
+//   - Last letter must match (after normalization).
+//   - Edit distance (Levenshtein on normalized forms) must be
+//     <= max(1, min(3, len/5)), i.e. about 20% of the length, at least 1,
+//     at most 3.
+//
+// This prevents the failure mode where e.g. "Сант'яга" matched
+// "Аклахома-Сіці", or "Мінск" matched "Пінск" — the anchors on both ends
+// pin the match to a genuinely similar name.
+//
+// Examples:
+//
+//	Минск  → Мінск     (и→і, distance 0 after normalization)
+//	Менск  → Мінск     (distance 1)
+//	Барановічы → Баранавічы (distance 1)
+//	Пінск  → NOT Мінск (first letter differs)
+//	Нара   → NOT Ніца  (distance 2 > budget 1 for length 4)
 func (s *CityStore) FindSimilar(input string) (*models.City, error) {
-	input = strings.TrimSpace(input)
-	if input == "" {
+	in := normalizeForCompare(input)
+	if in == "" {
 		return nil, ErrNotFound
 	}
-	wantFirst := firstLetterLower(input)
+	inRunes := []rune(in)
+	if len(inRunes) < 3 {
+		return nil, ErrNotFound
+	}
+	wantFirst := inRunes[0]
+	wantLast := inRunes[len(inRunes)-1]
+	if !unicode.IsLetter(wantFirst) || !unicode.IsLetter(wantLast) {
+		return nil, ErrNotFound
+	}
+
+	// Distance budget: 20% of length, at least 1, at most 3.
+	maxDist := len(inRunes) / 5
+	if maxDist < 1 {
+		maxDist = 1
+	}
+	if maxDist > 3 {
+		maxDist = 3
+	}
+
 	all, err := s.List()
 	if err != nil {
 		return nil, err
 	}
 	var best *models.City
-	bestDist := 1 << 30
+	bestDist := maxDist + 1
 	for _, c := range all {
-		if firstLetterLower(c.Name) != wantFirst {
+		cn := normalizeForCompare(c.Name)
+		cr := []rune(cn)
+		if len(cr) < 3 {
 			continue
 		}
-		d := levenshtein(input, c.Name)
-		if d <= 2 && d < bestDist {
+		if cr[0] != wantFirst || cr[len(cr)-1] != wantLast {
+			continue
+		}
+		// Fast reject: length difference must fit within the budget.
+		diff := len(inRunes) - len(cr)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > maxDist {
+			continue
+		}
+		d := levenshtein(in, cn)
+		if d == 0 {
+			return c, nil
+		}
+		if d <= maxDist && d < bestDist {
 			bestDist = d
 			best = c
 		}

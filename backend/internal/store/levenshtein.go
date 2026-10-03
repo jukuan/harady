@@ -5,8 +5,37 @@ import (
 	"unicode"
 )
 
+// normalizeForCompare folds common Belarusian/Russian spelling variants so
+// that different-looking spellings of the same name compare equal:
+//
+//	и → і   (Belarusian has no и; Russian spellings map cleanly)
+//	ў → у   (with/without the short-u mark)
+//
+// The canonical City.Name is never rewritten — this is only used for
+// comparison inside FindSimilar.
+//
+// Lowercasing is also applied. Leading/trailing whitespace is trimmed.
+func normalizeForCompare(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case 'и':
+			r = 'і'
+		case 'ў':
+			r = 'у'
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // levenshtein returns the edit distance between two strings, compared
 // case-insensitively and rune-wise (so Cyrillic counts correctly).
+//
+// Callers should pass strings already processed by normalizeForCompare
+// if they want variant-folded comparison.
 func levenshtein(a, b string) int {
 	ra := []rune(strings.ToLower(a))
 	rb := []rune(strings.ToLower(b))

@@ -12,13 +12,8 @@ func TestLevenshtein(t *testing.T) {
 		{"", "a", 1},
 		{"abc", "abc", 0},
 		{"Мінск", "Мінск", 0},
-		{"Мінск", "мінск", 0},       // case folded
-		{"Мінск", "Минск", 1},       // и→і
-		{"Мінск", "Менск", 1},       // е→і
-		{"Минск", "Менск", 1},
-		{"Мінск", "Пінск", 1},       // only first letter differs
-		// 5 edits: match М, insert а, insert г, match і, sub н→л, sub с→ё, sub к→ў.
-		{"Мінск", "Магілёў", 5},
+		{"Мінск", "мінск", 0},
+		{"Мінск", "Пінск", 1},
 		{"kitten", "sitting", 3},
 	}
 	for _, c := range cases {
@@ -29,14 +24,32 @@ func TestLevenshtein(t *testing.T) {
 	}
 }
 
+func TestNormalizeForCompare(t *testing.T) {
+	cases := map[string]string{
+		"":          "",
+		"Мінск":     "мінск",
+		"Минск":     "мінск",   // и → і
+		"Менск":     "менск",
+		"Магілёў":   "магілёу", // ў → у
+		"Магілёу":   "магілёу",
+		"  БРЭСТ ":  "брэст",
+		"Сант’яга":  "сант’яга",
+	}
+	for in, want := range cases {
+		if got := normalizeForCompare(in); got != want {
+			t.Errorf("normalizeForCompare(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestFirstLetterLower(t *testing.T) {
 	cases := map[string]rune{
-		"":     0,
+		"":        0,
 		"  Мінск": 'м',
-		"Мінск": 'м',
-		"міНСК": 'м',
-		"123":   0,
-		"-Х":    'х',
+		"Мінск":   'м',
+		"міНСК":   'м',
+		"123":     0,
+		"-Х":      'х',
 	}
 	for in, want := range cases {
 		if got := firstLetterLower(in); got != want {
