@@ -17,6 +17,7 @@ export function useRoomSocket(code: string | undefined, nickname: string) {
           case 'chain_added':    s.clearRejection(); s.appendChain(m.data.entry, m.data.next_required_letter); break
           case 'chain_rejected': s.reject(m.data); break
           case 'player_passed':  s.playerPassed(m.data); break
+          case 'city_learned':   s.cityLearned(m.data); break
           case 'player_out':     s.playerOut(m.data); break
           case 'game_ended':     s.gameEnded(s.room!, m.data.winner_id, m.data.winner_nickname); break
           case 'error':          s.setStatus('error', m.data.message); break

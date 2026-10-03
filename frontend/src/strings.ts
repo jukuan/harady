@@ -18,6 +18,7 @@ export const S = {
   bot: 'бот',
   out: 'выбыў',
   missed: 'промахаў',
+  cityLearned: (c: string) => `«${c}» дададзены ў базу гарадоў`,
   passedTurn: (nick: string, n: number, max: number) => `${nick} прапусціў ход (${n}/${max})`,
   addBot: 'Дадаць бота',
   start: 'Пачаць',

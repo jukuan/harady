@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ChainEntry, ChainRejected, PlayerOut, PlayerPassed, RoomState, TurnStarted } from './types'
+import type { ChainEntry, ChainRejected, CityLearned, PlayerOut, PlayerPassed, RoomState, TurnStarted } from './types'
 
 export type ConnStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
@@ -16,6 +16,7 @@ interface State {
   lastRejection: { reason: ChainRejected['reason']; text: string; at: number } | null
   lastOut: PlayerOut | null
   lastPassed: PlayerPassed | null
+  lastLearned: { city: string; at: number } | null
   finalState: RoomState | null  // frozen snapshot on game end
   winner: { id: string; nickname: string } | null
 
@@ -29,6 +30,7 @@ interface State {
   clearRejection: () => void
   playerOut: (o: PlayerOut) => void
   playerPassed: (p: PlayerPassed) => void
+  cityLearned: (c: CityLearned) => void
   gameEnded: (r: RoomState, winnerID?: string, winnerNick?: string) => void
   reset: () => void
 }
@@ -44,6 +46,7 @@ export const useStore = create<State>((set) => ({
   lastRejection: null,
   lastOut: null,
   lastPassed: null,
+  lastLearned: null,
   finalState: null,
   winner: null,
 
@@ -76,11 +79,12 @@ export const useStore = create<State>((set) => ({
     winner: id ? { id, nickname: nick ?? '' } : null,
   }),
   playerPassed: (p) => set({ lastPassed: p }),
+  cityLearned: (c) => set({ lastLearned: { city: c.city, at: Date.now() } }),
   reset: () => set({
     status: 'idle', errorMessage: null,
     playerId: null, isHost: false,
     room: null, turn: null,
-    lastRejection: null, lastOut: null, lastPassed: null,
+    lastRejection: null, lastOut: null, lastPassed: null, lastLearned: null,
     finalState: null, winner: null,
   }),
 }))

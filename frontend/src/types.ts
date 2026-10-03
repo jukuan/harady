@@ -61,6 +61,12 @@ export interface PlayerPassed {
   is_bot: boolean
 }
 
+export interface CityLearned {
+  city: string
+  region?: string
+}
+
+
 
 export interface GameEnded {
   winner_id?: string
@@ -78,4 +84,5 @@ export type ServerMessage =
   | { type: 'player_passed';  data: PlayerPassed }
   | { type: 'player_out';     data: PlayerOut }
   | { type: 'game_ended';     data: GameEnded }
+  | { type: 'city_learned';   data: CityLearned }
   | { type: 'error';          data: { message: string } }
