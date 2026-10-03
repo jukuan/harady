@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import type { RoomState } from '../types'
 import { S } from '../strings'
 import ChainRow from './ChainRow'
+import EmojiPicker from './EmojiPicker'
 
 interface Props {
   room: RoomState
@@ -17,6 +18,7 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
   const rejection = useStore((s) => s.lastRejection)
   const lastOut = useStore((s) => s.lastOut)
   const lastPassed = useStore((s) => s.lastPassed)
+  const lastLearned = useStore((s) => s.lastLearned)
 
   // Defensive: JSON from Go may deliver `null` where we expect an array.
   const players = room.players ?? []
@@ -31,22 +33,36 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
   const [rejToast, setRejToast] = useState<string | null>(null)
   const [outToast, setOutToast] = useState<string | null>(null)
   const [passToast, setPassToast] = useState<string | null>(null)
+  const [learnedToast, setLearnedToast] = useState<string | null>(null)
   const [copiedCode, setCopiedCode] = useState(false)
+
+  // Bottom sentinel lives at the end of the chain list. Scrolling it into
+  // view is more reliable than computing scrollHeight: it works even when
+  // rows animate in, images load late, or font metrics shift after mount.
+  const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Turn change clears the input.
   useEffect(() => { setText('') }, [room.current_turn_id])
 
-  // Auto-scroll chain to the bottom on new entries.
+  // Auto-scroll the chain to the newest entry on every append.
+  // rAF defers to the next paint so the new row has been laid out.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+    const el = bottomRef.current
+    if (!el) return
+    const id = window.requestAnimationFrame(() => {
+      el.scrollIntoView({ block: 'end', behavior: 'smooth' })
+    })
+    return () => window.cancelAnimationFrame(id)
   }, [chain.length])
 
+  // Also scroll on the first mount once the ref is attached.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: 'end' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Show rejection toast for 2s.
-  // Keyed on the rejection object only. The store clears `lastRejection`
-  // whenever a move succeeds or the turn advances, so this effect fires
-  // exactly once per fresh rejection and never re-shows a stale message when
-  // `room.required_letter` changes.
   useEffect(() => {
     if (!rejection) return
     const label =
@@ -68,24 +84,32 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
     return () => window.clearTimeout(t)
   }, [lastOut?.player_id, lastOut?.missed])
 
-  // Show "X passed" toast for 2.5s (only if they are not eliminated yet).
+  // Show "X passed" toast for 2.5s (skipped when the pass eliminates them —
+  // the player_out toast covers that case).
   useEffect(() => {
     if (!lastPassed) return
-    if (lastPassed.missed >= room.max_misses) return // player_out handles it
+    if (lastPassed.missed >= room.max_misses) return
     setPassToast(S.passedTurn(lastPassed.nickname, lastPassed.missed, room.max_misses))
     const t = window.setTimeout(() => setPassToast(null), 2500)
     return () => window.clearTimeout(t)
   }, [lastPassed?.player_id, lastPassed?.missed, room.max_misses])
 
+  // Show "city learned" toast for 3.5s.
+  useEffect(() => {
+    if (!lastLearned) return
+    setLearnedToast(S.cityLearned(lastLearned.city))
+    const t = window.setTimeout(() => setLearnedToast(null), 3500)
+    return () => window.clearTimeout(t)
+  }, [lastLearned?.at])
+
   const canSubmit = isMyTurn && !iAmOut && text.trim().length > 0
 
   const submit = () => {
     if (!canSubmit) return
-    setRejToast(null)          // hide any previous error while the server checks
+    setRejToast(null)
     onSubmitCity(text.trim())
     setText('')
   }
-
 
   const copyCode = async () => {
     try { await navigator.clipboard.writeText(room.code) } catch { /* ignore */ }
@@ -96,9 +120,11 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
   const liveHint = computeLiveHint(text, room.required_letter)
 
   return (
-    <div className="min-h-full flex flex-col max-w-md mx-auto w-full">
+    // h-dvh keeps the shell exactly one viewport tall. The middle section
+    // then has a real bounded height and its own scrollbar.
+    <div className="h-dvh flex flex-col max-w-md mx-auto w-full overflow-hidden">
       {/* Top bar */}
-      <header className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur border-b border-slate-200">
+      <header className="shrink-0 bg-slate-50/95 backdrop-blur border-b border-slate-200">
         <div className="px-4 pt-3 pb-2 flex items-center justify-between">
           <button
             className="text-xs uppercase tracking-wider text-slate-500 font-extrabold truncate
@@ -128,8 +154,11 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
         </div>
       </header>
 
-      {/* Chain */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      {/* Chain — the only scrolling region */}
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 space-y-2"
+      >
         {chain.length === 0 && (
           <div className="text-center text-slate-400 font-extrabold uppercase tracking-wider py-8">
             {S.firstMove}
@@ -138,13 +167,15 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
         {chain.map((e, i) => (
           <ChainRow key={i} index={i + 1} entry={e} isMine={e.player_id === me} />
         ))}
+        {/* Sentinel: scrolled into view on every new chain entry. */}
+        <div ref={bottomRef} aria-hidden="true" className="h-px w-full" />
       </div>
 
       {/* Toasts */}
       <div className="pointer-events-none fixed inset-x-0 bottom-32 flex flex-col items-center gap-2 z-40 px-4">
-        {rejToast && (
-          <div className="bg-danger text-white rounded-2xl px-4 py-2 font-extrabold shadow-lg animate-pop">
-            {rejToast}
+        {learnedToast && (
+          <div className="bg-emerald-600 text-white rounded-2xl px-4 py-2 font-extrabold shadow-lg animate-pop">
+            🔧 {learnedToast}
           </div>
         )}
         {passToast && (
@@ -160,7 +191,7 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
       </div>
 
       {/* Input area */}
-      <div className="sticky bottom-0 bg-slate-50/95 backdrop-blur border-t border-slate-200 p-3"
+      <div className="shrink-0 bg-slate-50/95 backdrop-blur border-t border-slate-200 p-3"
            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         {iAmOut ? (
           <div className="text-center text-slate-500 font-extrabold uppercase tracking-wider py-2">
@@ -203,7 +234,6 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
     </div>
   )
 }
-
 
 function computeLiveHint(text: string, requiredLetter: string): string | null {
   const t = text.trim()

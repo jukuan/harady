@@ -54,3 +54,7 @@
            focus:outline-none focus:border-primary;
   }
 }
+
+@supports not (height: 100dvh) {
+  .h-dvh { height: 100vh; }
+}
