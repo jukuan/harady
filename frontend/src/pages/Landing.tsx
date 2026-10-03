@@ -67,7 +67,7 @@ export default function Landing() {
         <div className="card flex flex-col gap-4">
           <label className="flex flex-col gap-2">
             <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
-              {S.jukuan}
+              {S.yourName}
             </span>
             <input
               className="input"

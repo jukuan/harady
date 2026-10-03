@@ -2,7 +2,7 @@ export const S = {
   appName: 'Harady',
   tagline: 'Гульня ў гарады',
 
-  jukuan: 'Тваё імя',
+  yourName: 'Тваё імя',
   namePlaceholder: 'Напрыклад, Алесь',
   createRoom: 'Стварыць пакой',
   joinRoom: 'Далучыцца',
@@ -60,6 +60,8 @@ export const S = {
 
   connecting: 'Злучэнне…',
   reconnecting: 'Перападключэнне…',
+  roomNotFound: 'Пакой не знойдзены',
+  connectionFailed: 'Не ўдалося падключыцца да сервера',
   leaveRoom: 'Выйсці',
 
   genericError: 'Нешта пайшло не так',

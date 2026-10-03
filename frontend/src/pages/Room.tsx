@@ -38,7 +38,7 @@ export default function Room() {
 
   if (needName) return (
     <Centered>
-      <h2 className="text-xl font-black mb-3">{S.jukuan}</h2>
+      <h2 className="text-xl font-black mb-3">{S.yourName}</h2>
       <input className="input mb-3" autoFocus value={pendingName} maxLength={20}
         placeholder={S.namePlaceholder}
         onChange={(e) => setPendingName(e.target.value)}
@@ -49,16 +49,23 @@ export default function Room() {
 
   if (status === 'error') return (
     <Centered>
-      <div className="text-danger font-extrabold mb-3">{errorMessage ?? S.genericError}</div>
-      <button className="btn btn-ghost" onClick={() => nav('/')}>{S.backHome}</button>
+      <div className="text-danger font-extrabold mb-4 text-center">
+        {errorMessage ?? S.genericError}
+      </div>
+      <button className="btn btn-primary w-full" onClick={() => nav('/')}>
+        {S.backHome}
+      </button>
     </Centered>
   )
 
   if (!room) return (
     <Centered>
-      <div className="animate-pulse text-slate-500 font-extrabold uppercase tracking-wider">
-        {S.connecting}
+      <div className="animate-pulse text-slate-500 font-extrabold uppercase tracking-wider text-center">
+        {status === 'reconnecting' ? S.reconnecting : S.connecting}
       </div>
+      <button className="btn btn-ghost w-full mt-4" onClick={() => nav('/')}>
+        {S.backHome}
+      </button>
     </Centered>
   )
 

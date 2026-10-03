@@ -1,8 +1,15 @@
-import { WS_BASE } from './config'
+import { API_BASE, WS_BASE } from './config'
+import { S } from './strings'
 import type { ServerMessage } from './types'
 
 type MsgHandler = (m: ServerMessage) => void
-type StatusHandler = (s: 'connecting' | 'connected' | 'reconnecting' | 'error', err?: string) => void
+type StatusHandler = (
+  s: 'connecting' | 'connected' | 'reconnecting' | 'error',
+  err?: string,
+) => void
+
+// After this many consecutive failed reconnects we stop and surface an error.
+const MAX_RECONNECTS = 4
 
 let ws: WebSocket | null = null
 let onMsg: MsgHandler | null = null
@@ -22,7 +29,8 @@ export function connect(code: string, nickname: string) {
   currentCode = code
   currentNick = nickname
   manuallyClosed = false
-  open()
+  retry = 0
+  void openWithPrecheck()
 }
 
 export function disconnect() {
@@ -42,6 +50,44 @@ export function send(type: string, data?: unknown) {
   ws.send(JSON.stringify(data === undefined ? { type } : { type, data }))
 }
 
+// ---- pre-check ------------------------------------------------------------
+
+// Ask the REST API whether the room exists before opening the WS.
+// A WS handshake against a missing room yields only an opaque 1006 close
+// event, which is indistinguishable from a transient network blip; the REST
+// call gives us a definitive answer up front.
+async function verifyRoom(code: string): Promise<'ok' | 'not_found' | 'unreachable'> {
+  try {
+    const res = await fetch(`${API_BASE}/api/rooms/${encodeURIComponent(code)}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    })
+    if (res.status === 404) return 'not_found'
+    if (res.ok) return 'ok'
+    return 'unreachable'
+  } catch {
+    return 'unreachable'
+  }
+}
+
+async function openWithPrecheck() {
+  if (!currentCode || !currentNick) return
+  onStatus?.('connecting')
+
+  const v = await verifyRoom(currentCode)
+  if (manuallyClosed) return
+
+  if (v === 'not_found') {
+    onStatus?.('error', S.roomNotFound)
+    return
+  }
+  // ok or unreachable — try the WS anyway; if the server is truly down the
+  // reconnect cap below will eventually surface an error.
+  open()
+}
+
+// ---- WS open + reconnect --------------------------------------------------
+
 function open() {
   if (!currentCode || !currentNick) return
   onStatus?.(retry === 0 ? 'connecting' : 'reconnecting')
@@ -49,7 +95,7 @@ function open() {
   const url = `${WS_BASE}/ws/rooms/${encodeURIComponent(currentCode)}`
   try {
     ws = new WebSocket(url)
-  } catch (e) {
+  } catch {
     scheduleReconnect()
     return
   }
@@ -77,8 +123,13 @@ function open() {
 }
 
 function scheduleReconnect() {
-  onStatus?.('reconnecting')
+  if (manuallyClosed) return
   retry++
+  if (retry > MAX_RECONNECTS) {
+    onStatus?.('error', S.connectionFailed)
+    return
+  }
+  onStatus?.('reconnecting')
   const delay = Math.min(500 * 2 ** (retry - 1), 8000)
   retryTimer = window.setTimeout(() => {
     retryTimer = null
