@@ -89,6 +89,11 @@ type GameEnded struct {
 	Chain      []ChainEntry `json:"chain"`
 }
 
+type CityLearned struct {
+	City   string `json:"city"`
+	Region string `json:"region,omitempty"`
+}
+
 type ErrorData struct {
 	Message string `json:"message"`
 }

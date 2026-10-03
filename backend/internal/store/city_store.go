@@ -19,7 +19,7 @@ type CityStore struct{ db *sql.DB }
 
 func NewCityStore(db *sql.DB) *CityStore { return &CityStore{db: db} }
 
-const cols = `id, name, region, clues, created_at, updated_at`
+const cols = `id, name, region, clues, source, created_at, updated_at`
 
 type rowScanner interface{ Scan(...any) error }
 
@@ -28,7 +28,7 @@ func scanCity(row rowScanner) (*models.City, error) {
 		c         models.City
 		cluesJSON string
 	)
-	if err := row.Scan(&c.ID, &c.Name, &c.Region, &cluesJSON, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.Region, &cluesJSON, &c.Source, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
 	if cluesJSON != "" {
@@ -289,4 +289,45 @@ func (s *CityStore) FindSimilar(input string) (*models.City, error) {
 		return nil, ErrNotFound
 	}
 	return best, nil
+}
+
+
+// AddLearned inserts a city discovered by players at runtime (three-strikes
+// rule). The row is marked source='learned' so it can be audited or purged
+// separately from the seed pack. Returns ErrDuplicate if the name already
+// exists — callers should treat that as "proceed as if found".
+func (s *CityStore) AddLearned(name, region string) (int64, error) {
+	clues, _ := json.Marshal([]string{})
+	res, err := s.db.Exec(
+		`INSERT INTO cities (name, region, clues, source) VALUES (?, ?, ?, 'learned')`,
+		name, region, string(clues),
+	)
+	if err != nil {
+		if isUniqueErr(err) {
+			return 0, ErrDuplicate
+		}
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// ListLearned returns every city that was added by the three-strikes rule,
+// newest first. Used by `harady-cli list-learned`.
+func (s *CityStore) ListLearned() ([]*models.City, error) {
+	rows, err := s.db.Query(
+		`SELECT ` + cols + ` FROM cities WHERE source = 'learned' ORDER BY id DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*models.City
+	for rows.Next() {
+		c, err := scanCity(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }

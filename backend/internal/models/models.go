@@ -9,6 +9,7 @@ type City struct {
 	Name      string    `json:"name"`
 	Region    string    `json:"region,omitempty"`
 	Clues     []string  `json:"clues"`
+	Source    string    `json:"source,omitempty"` // "seed" | "learned"
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

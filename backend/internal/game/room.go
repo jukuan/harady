@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -18,6 +19,10 @@ const (
 	MaxPlayers = 10
 	MaxMisses  = 2
 	MaxCityLen = 80
+
+	// maxLearnedPerGame limits how many cities a single room can add to
+	// the DB. Prevents a spammer from filling the cities table in one sitting.
+	maxLearnedPerGame = 3
 )
 
 type Room struct {
@@ -35,6 +40,9 @@ type Room struct {
 	required  rune
 	turnID    string
 	lastTouch time.Time
+
+	// Three-strikes cap: max learned cities per room per game.
+	learnedCount int
 }
 
 func newRoom(code string, cities *store.CityStore) *Room {
@@ -222,7 +230,10 @@ func (r *Room) Start(byPlayerID string) error {
 	for _, p := range r.players {
 		p.Missed = 0
 		p.Out = false
+		p.LastUnknown = ""
+		p.UnknownCount = 0
 	}
+	r.learnedCount = 0
 	r.chain = nil
 	r.chainSet = map[string]bool{}
 	r.required = 0
@@ -321,6 +332,10 @@ func (r *Room) sendRejectedLocked(playerID, reason, text string) {
 // SubmitCity is called when the player whose turn it is proposes a city.
 // The input is matched against the DB with typo tolerance; the canonical
 // DB name is what goes into the chain.
+//
+// Three-strikes self-healing: if the same unknown name is typed three times
+// in a row by the same player (and passes validation), it is inserted into
+// the DB with source='learned' and the move is accepted.
 func (r *Room) SubmitCity(playerID, raw string) {
 	r.mu.Lock()
 	if r.Phase != PhasePlaying || playerID != r.turnID {
@@ -344,17 +359,26 @@ func (r *Room) SubmitCity(playerID, raw string) {
 	}
 	r.mu.Unlock()
 
+	// Try the DB (with typo tolerance) first.
 	matched, err := r.Cities.FindSimilar(city)
-	if err != nil || matched == nil {
-		r.mu.Lock()
-		if r.Phase == PhasePlaying && playerID == r.turnID {
-			r.sendRejectedLocked(playerID, "not_in_db", city)
+	canonical := ""
+	if err == nil && matched != nil {
+		canonical = matched.Name
+		r.resetUnknown(playerID)
+	} else {
+		// Not in DB — try the three-strikes learning path.
+		learned, ok := r.tryLearnCity(playerID, city)
+		if !ok {
+			r.mu.Lock()
+			if r.Phase == PhasePlaying && playerID == r.turnID {
+				r.sendRejectedLocked(playerID, "not_in_db", city)
+			}
+			r.mu.Unlock()
+			return
 		}
-		r.mu.Unlock()
-		return
+		canonical = learned
 	}
 
-	canonical := matched.Name
 	norm := NormalizeCity(canonical)
 
 	r.mu.Lock()
@@ -391,6 +415,75 @@ func (r *Room) SubmitCity(playerID, raw string) {
 
 	r.BroadcastState()
 	r.maybeKickBot(nextID)
+}
+
+// resetUnknown clears the three-strikes counter for a player.
+func (r *Room) resetUnknown(playerID string) {
+	r.mu.Lock()
+	if p := r.players[playerID]; p != nil {
+		p.LastUnknown = ""
+		p.UnknownCount = 0
+	}
+	r.mu.Unlock()
+}
+
+// tryLearnCity implements the three-strikes rule. Returns the canonical name
+// to use if the city was learned (or a duplicate insert raced), or ("", false)
+// if the move should be rejected as not_in_db.
+func (r *Room) tryLearnCity(playerID, city string) (string, bool) {
+	if !validLearnedCity(city) {
+		r.resetUnknown(playerID)
+		return "", false
+	}
+	norm := NormalizeCity(city)
+
+	r.mu.Lock()
+	p := r.players[playerID]
+	if p == nil {
+		r.mu.Unlock()
+		return "", false
+	}
+	if p.LastUnknown == norm {
+		p.UnknownCount++
+	} else {
+		p.LastUnknown = norm
+		p.UnknownCount = 1
+	}
+	count := p.UnknownCount
+	capReached := r.learnedCount >= maxLearnedPerGame
+	r.mu.Unlock()
+
+	if count < 3 {
+		return "", false
+	}
+	if capReached {
+		return "", false
+	}
+
+	canonical := capitalizeFirst(city)
+	_, err := r.Cities.AddLearned(canonical, "")
+	if err != nil && !errors.Is(err, store.ErrDuplicate) {
+		// Real DB error (disk full, etc.) — do not accept the move.
+		return "", false
+	}
+	// ErrDuplicate means someone else just inserted it. Either way, use the
+	// canonical name and proceed.
+
+	r.mu.Lock()
+	if p := r.players[playerID]; p != nil {
+		p.LastUnknown = ""
+		p.UnknownCount = 0
+	}
+	// Only count it against the game cap when we actually inserted.
+	if err == nil {
+		r.learnedCount++
+	}
+	r.broadcastLocked(ServerMessage{Type: "city_learned", Data: CityLearned{
+		City: canonical,
+	}})
+	r.mu.Unlock()
+
+	return canonical, true
 }
 
 // Pass is when a player gives up their turn.

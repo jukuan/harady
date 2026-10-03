@@ -14,6 +14,11 @@ type Player struct {
 	Missed   int
 	Out      bool
 
+	// Three-strikes bookkeeping. See Room.SubmitCity.
+	// Guarded by Room.mu (not the client mutex).
+	LastUnknown  string // normalized name last seen as not_in_db
+	UnknownCount int    // how many times in a row the player typed it
+
 	mu     sync.RWMutex
 	client ClientHandle
 }

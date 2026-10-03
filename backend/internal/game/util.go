@@ -113,3 +113,57 @@ func pickBotName(existing map[string]*Player) string {
 	}
 	return "Bot-" + randString(4)
 }
+
+
+// validLearnedCity reports whether a not-in-DB city name is worth learning
+// into the DB. This is the only gate between an arbitrary player string and
+// the shared cities table, so it is deliberately conservative.
+//
+// Rejected:
+//   - shorter than 3 runes or longer than MaxCityLen
+//   - contains anything other than letters, spaces, hyphens, apostrophes
+//   - has no letter at all
+//   - has a run of 3+ identical letters (blocks "ААААА" style spam)
+func validLearnedCity(s string) bool {
+	s = strings.TrimSpace(s)
+	runes := []rune(s)
+	if len(runes) < 3 || len(runes) > MaxCityLen {
+		return false
+	}
+	hasLetter := false
+	prev := rune(0)
+	run := 0
+	for _, r := range runes {
+		switch {
+		case unicode.IsLetter(r):
+			hasLetter = true
+			if r == prev {
+				run++
+				if run >= 3 {
+					return false
+				}
+			} else {
+				run = 1
+				prev = r
+			}
+		case r == ' ' || r == '-' || r == '\'' || r == '\u2019':
+			prev = 0
+			run = 0
+		default:
+			return false
+		}
+	}
+	return hasLetter
+}
+
+// capitalizeFirst uppercases the first rune of s (after trimming space).
+// "фукуока" -> "Фукуока"
+func capitalizeFirst(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
+}
