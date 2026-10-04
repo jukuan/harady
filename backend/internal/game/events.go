@@ -14,6 +14,9 @@ type ServerMessage struct {
 
 type JoinData struct {
 	Nickname string `json:"nickname"`
+	// PlayerID is supplied by the client on reconnect so the server can
+	// reattach to the same seat instead of creating a new player.
+	PlayerID string `json:"player_id,omitempty"`
 }
 
 type CityData struct {

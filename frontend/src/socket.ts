@@ -11,6 +11,25 @@ type StatusHandler = (
 // After this many consecutive failed reconnects we stop and surface an error.
 const MAX_RECONNECTS = 4
 
+// Player identity is persisted per room in sessionStorage. This survives a
+// page reload but is cleared when the tab is closed, and is isolated per
+// tab so two tabs on the same room don't hijack each other.
+const playerIdKey = (code: string) => `harady:player_id:${code}`
+
+function getOrCreatePlayerId(code: string): string {
+  try {
+    const existing = sessionStorage.getItem(playerIdKey(code))
+    if (existing) return existing
+    const id = (crypto as { randomUUID?: () => string }).randomUUID?.() ??
+      `p-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    sessionStorage.setItem(playerIdKey(code), id)
+    return id
+  } catch {
+    // Private mode / quota — fall back to no persistence.
+    return `p-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  }
+}
+
 let ws: WebSocket | null = null
 let onMsg: MsgHandler | null = null
 let onStatus: StatusHandler | null = null
@@ -103,12 +122,20 @@ function open() {
   ws.onopen = () => {
     retry = 0
     onStatus?.('connected')
-    ws?.send(JSON.stringify({ type: 'join', data: { nickname: currentNick } }))
+    {
+      const pid = getOrCreatePlayerId(currentCode!)
+      ws?.send(JSON.stringify({ type: 'join', data: { nickname: currentNick, player_id: pid } }))
+    }
   }
 
   ws.onmessage = (ev) => {
     try {
       const m = JSON.parse(ev.data as string) as ServerMessage
+      // Cache the server's canonical player_id — it may differ from the one
+      // we sent if the server regenerated it.
+      if (m.type === 'joined' && currentCode && m.data?.player_id) {
+        try { sessionStorage.setItem(playerIdKey(currentCode), m.data.player_id) } catch {}
+      }
       onMsg?.(m)
     } catch { /* ignore malformed */ }
   }

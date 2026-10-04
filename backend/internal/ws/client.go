@@ -183,7 +183,13 @@ func (c *Client) handleJoin(msg game.ClientMessage) {
 		c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "nickname required"}})
 		return
 	}
-	p := &game.Player{ID: uuid.NewString(), Nickname: nick}
+	// Reuse the client-supplied ID when present (reconnect / reload).
+	// Otherwise mint a fresh one.
+	id := d.PlayerID
+	if id == "" {
+		id = uuid.NewString()
+	}
+	p := &game.Player{ID: id, Nickname: nick}
 	if err := c.room.Join(p, c); err != nil {
 		c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: err.Error()}})
 		return

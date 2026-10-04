@@ -1,6 +1,7 @@
 export const S = {
   appName: 'Harady',
   tagline: 'Гульня ў гарады',
+  gameDescription: 'адбываецца ў віртуальных асобных пакоях',
 
   yourName: 'Тваё імя',
   namePlaceholder: 'Напрыклад, Алесь',
@@ -24,7 +25,7 @@ export const S = {
   addBot: 'Дадаць бота',
   start: 'Пачаць',
   waiting: 'Чакаем гаспадара…',
-  needPlayers: (n: number) => `Патрэбна хаця б ${n} гульні`,
+  needPlayers: (n: number) => `Патрэбна хаця б ${n} гульцы. Запрасі сябра ці бота`,
   copyLink: 'Скапіраваць спасылку',
   copied: 'Скапіравана!',
   shareHint: 'Падзяліся спасылкай з сябрамі',

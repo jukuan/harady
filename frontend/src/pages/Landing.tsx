@@ -62,6 +62,7 @@ export default function Landing() {
           </div>
           <h1 className="mt-4 text-4xl font-black tracking-tight">{S.appName}</h1>
           <p className="text-slate-500 mt-1">{S.tagline}</p>
+          <p className="text-slate-500 mt-1">{S.gameDescription}</p>
         </header>
 
         <div className="card flex flex-col gap-4">

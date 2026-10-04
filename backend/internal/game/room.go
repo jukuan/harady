@@ -62,6 +62,21 @@ func newRoom(code string, cities *store.CityStore) *Room {
 func (r *Room) Join(p *Player, c ClientHandle) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Reattach: the client supplied a PlayerID we already know. This is the
+	// common case for a page reload — we keep the seat, the score, and the
+	// existing chain entries tagged with this ID.
+	if p.ID != "" {
+		if existing, ok := r.players[p.ID]; ok {
+			existing.Nickname = p.Nickname
+			existing.mu.Lock()
+			existing.client = c
+			existing.mu.Unlock()
+			r.lastTouch = time.Now()
+			return nil
+		}
+	}
+
 	if len(r.players) >= MaxPlayers {
 		return fmt.Errorf("room full")
 	}
