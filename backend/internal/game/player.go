@@ -1,6 +1,9 @@
 package game
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 type ClientHandle interface {
 	Send(msg ServerMessage)
@@ -18,6 +21,9 @@ type Player struct {
 	// Guarded by Room.mu (not the client mutex).
 	LastUnknown  string // normalized name last seen as not_in_db
 	UnknownCount int    // how many times in a row the player typed it
+
+	// Reaction rate limit. Guarded by Room.mu.
+	LastReactAt time.Time
 
 	mu     sync.RWMutex
 	client ClientHandle

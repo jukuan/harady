@@ -94,6 +94,18 @@ type CityLearned struct {
 	Region string `json:"region,omitempty"`
 }
 
+type ReactData struct {
+	Emoji string `json:"emoji"`
+}
+
+type ReactionData struct {
+	PlayerID   string `json:"player_id"`
+	Nickname   string `json:"nickname"`
+	Emoji      string `json:"emoji"`
+	ChainIndex int    `json:"chain_index"`
+	Ts         int64  `json:"ts"`
+}
+
 type ErrorData struct {
 	Message string `json:"message"`
 }

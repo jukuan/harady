@@ -3,22 +3,34 @@ import { useStore } from '../store'
 import type { RoomState } from '../types'
 import { S } from '../strings'
 import ChainRow from './ChainRow'
-import EmojiPicker from './EmojiPicker'
+
+// Reactions share one channel; the server enforces the same whitelist.
+const REACTIONS = ['👍', '😂', '🔥', '❤️', '🤔', '👏', '😮', '🙈', '🎉', '💀']
 
 interface Props {
   room: RoomState
   onSubmitCity: (city: string) => void
   onPass: () => void
+  onReact: (emoji: string) => void
   onEnd: () => void
   onExit: () => void
 }
 
-export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }: Props) {
+export default function GameScreen({
+  room,
+  onSubmitCity,
+  onPass,
+  onReact,
+  onEnd,
+  onExit,
+}: Props) {
   const me = useStore((s) => s.playerId)
   const rejection = useStore((s) => s.lastRejection)
   const lastOut = useStore((s) => s.lastOut)
   const lastPassed = useStore((s) => s.lastPassed)
   const lastLearned = useStore((s) => s.lastLearned)
+  const reactions = useStore((s) => s.reactions)
+  const pruneReactions = useStore((s) => s.pruneReactions)
 
   // Defensive: JSON from Go may deliver `null` where we expect an array.
   const players = room.players ?? []
@@ -58,6 +70,13 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
     bottomRef.current?.scrollIntoView({ block: 'end' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Prune reactions after they finish animating (float-up runs 1.8s).
+  useEffect(() => {
+    if (reactions.length === 0) return
+    const t = window.setTimeout(() => pruneReactions(1900), 1900)
+    return () => window.clearTimeout(t)
+  }, [reactions.length, pruneReactions])
 
   // Show rejection toast for 2s.
   useEffect(() => {
@@ -114,12 +133,10 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
     window.setTimeout(() => setCopiedCode(false), 1500)
   }
 
-  const insertEmoji = (e: string) => setText((t) => t + e)
-
   const liveHint = computeLiveHint(text, room.required_letter)
 
   return (
-    <div className="h-dvh flex flex-col max-w-md mx-auto w-full overflow-hidden">
+    <div className="h-dvh flex flex-col max-w-md mx-auto w-full overflow-hidden relative">
       {/* Top bar */}
       <header className="shrink-0 bg-slate-50/95 backdrop-blur border-b border-slate-200">
         <div className="px-4 pt-3 pb-2 flex items-center justify-between">
@@ -164,6 +181,24 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
         <div ref={bottomRef} aria-hidden="true" className="h-px w-full" />
       </div>
 
+      {/* Floating reactions — rise from bottom-right of the chain viewport. */}
+      {reactions.length > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-32 flex justify-end pr-6 z-30">
+          <div className="relative w-24 h-24">
+            {reactions.map((r, i) => (
+              <span
+                key={`${r.ts}-${r.player_id}`}
+                className="absolute bottom-0 right-0 text-3xl animate-float-up"
+                style={{ right: `${(i % 4) * 8}px` }}
+                title={r.nickname}
+              >
+                {r.emoji}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Toasts */}
       <div className="pointer-events-none fixed inset-x-0 bottom-32 flex flex-col items-center gap-2 z-40 px-4">
         {rejToast && (
@@ -189,23 +224,48 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 bg-slate-50/95 backdrop-blur border-t border-slate-200 p-3"
-           style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+      <div
+        className="shrink-0 bg-slate-50/95 backdrop-blur border-t border-slate-200 p-3"
+        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+      >
         {iAmOut ? (
           <div className="text-center text-slate-500 font-extrabold uppercase tracking-wider py-2">
             {S.youAreOut}
           </div>
         ) : (
           <>
-            <div className="flex items-end gap-2">
-              <EmojiPicker onPick={insertEmoji} />
+            {/* Reaction bar — separate channel from the city input. */}
+            {chain.length > 0 && (
+              <div className="flex items-center gap-1 mb-2 overflow-x-auto -mx-1 px-1">
+                {REACTIONS.map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    className="shrink-0 w-9 h-9 grid place-items-center rounded-full
+                               bg-white border-2 border-slate-200 text-lg
+                               active:translate-y-[1px] active:bg-slate-100"
+                    onClick={() => onReact(e)}
+                    aria-label={`Рэакцыя ${e}`}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-stretch gap-2">
               <input
                 className={'input flex-1 ' + (liveHint ? '!border-danger' : '')}
                 value={text}
                 maxLength={80}
                 placeholder={S.placeholder}
                 onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit() } }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    submit()
+                  }
+                }}
                 disabled={!isMyTurn}
                 autoComplete="off"
                 autoCapitalize="words"
@@ -214,16 +274,26 @@ export default function GameScreen({ room, onSubmitCity, onPass, onEnd, onExit }
                 {S.send}
               </button>
             </div>
+
             {liveHint && (
               <div className="text-danger text-xs font-extrabold mt-1">{liveHint}</div>
             )}
-            <button className="btn btn-ghost w-full mt-2 !py-2 text-xs"
-                    onClick={onPass} disabled={!isMyTurn || iAmOut}>
+
+            <button
+              className="btn btn-ghost w-full mt-2 !py-2 text-xs"
+              onClick={onPass}
+              disabled={!isMyTurn || iAmOut}
+            >
               {S.pass} ({myView?.missed ?? 0}/{room.max_misses})
             </button>
+
             {isHost && (
-              <button className="btn btn-danger w-full mt-2 !py-2 text-xs"
-                      onClick={() => { if (confirm(S.endGameConfirm)) onEnd() }}>
+              <button
+                className="btn btn-danger w-full mt-2 !py-2 text-xs"
+                onClick={() => {
+                  if (confirm(S.endGameConfirm)) onEnd()
+                }}
+              >
                 {S.endGame}
               </button>
             )}

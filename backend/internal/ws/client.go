@@ -155,6 +155,13 @@ func (c *Client) dispatch(msg game.ClientMessage) {
 		var d game.CityData
 		_ = json.Unmarshal(msg.Data, &d)
 		c.room.SubmitCity(c.player.ID, d.City)
+	case "react":
+		if c.player == nil {
+			return
+		}
+		var d game.ReactData
+		_ = json.Unmarshal(msg.Data, &d)
+		c.room.React(c.player.ID, d.Emoji)
 	case "pass":
 		if c.player != nil {
 			c.room.Pass(c.player.ID)

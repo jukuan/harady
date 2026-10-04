@@ -84,7 +84,7 @@ export default function Room() {
         <Lobby room={room} onAddBot={api.addBot} onStart={api.startGame} onExit={() => nav('/')} />
       ) : (
         <GameScreen room={room} onSubmitCity={api.submitCity} onPass={api.pass}
-                    onEnd={api.endGame} onExit={() => nav('/')} />
+                    onReact={api.react} onEnd={api.endGame} onExit={() => nav('/')} />
       )}
     </>
   )

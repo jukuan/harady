@@ -3,6 +3,7 @@ package game
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -541,4 +542,60 @@ func (r *Room) CloseAll() {
 	for _, p := range players {
 		p.Send(ServerMessage{Type: "server_shutdown", Data: nil})
 	}
+}
+
+
+// allowedReactions is the server-side whitelist. A modified client cannot
+// inject arbitrary text into the reaction stream — only these exact strings
+// are accepted.
+var allowedReactions = map[string]bool{
+	"👍": true, "😂": true, "🔥": true, "❤️": true, "🤔": true,
+	"👏": true, "😮": true, "🙈": true, "🎉": true, "💀": true,
+}
+
+// reactCooldown limits how often a single player can react.
+const reactCooldown = 400 * time.Millisecond
+
+// React broadcasts a floating emoji attached to the latest chain entry.
+// Rate-limited per player; silent no-op if the whitelist, cooldown, or
+// game state reject it. Never fails the caller.
+func (r *Room) React(playerID, emoji string) {
+	if !allowedReactions[emoji] {
+		return
+	}
+
+	r.mu.Lock()
+	if r.Phase != PhasePlaying && r.Phase != PhaseEnded {
+		r.mu.Unlock()
+		return
+	}
+	p := r.players[playerID]
+	if p == nil {
+		r.mu.Unlock()
+		return
+	}
+	now := time.Now()
+	if !p.LastReactAt.IsZero() && now.Sub(p.LastReactAt) < reactCooldown {
+		r.mu.Unlock()
+		return
+	}
+	p.LastReactAt = now
+
+	// Attach to the last chain entry. If the chain is empty, still broadcast
+	// with chain_index = -1 — the client renders it at the bottom.
+	idx := len(r.chain) - 1
+	if idx < 0 {
+		idx = -1
+	}
+	payload := ReactionData{
+		PlayerID:   p.ID,
+		Nickname:   p.Nickname,
+		Emoji:      emoji,
+		ChainIndex: idx,
+		Ts:         now.UnixMilli(),
+	}
+	r.broadcastLocked(ServerMessage{Type: "reaction", Data: payload})
+	r.mu.Unlock()
+
+	slog.Debug("reaction", "room", r.Code, "player", p.Nickname, "emoji", emoji, "index", idx)
 }

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ChainEntry, ChainRejected, CityLearned, PlayerOut, PlayerPassed, RoomState, TurnStarted } from './types'
+import type { ChainEntry, ChainRejected, CityLearned, PlayerOut, PlayerPassed, ReactionData, RoomState, TurnStarted } from './types'
 
 export type ConnStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
@@ -17,6 +17,10 @@ interface State {
   lastOut: PlayerOut | null
   lastPassed: PlayerPassed | null
   lastLearned: { city: string; at: number } | null
+  // Floating emoji reactions. Each entry lives here for ~1.8s then is pruned
+  // by a GameScreen effect. Kept as an array so overlapping reactions don't
+  // clobber each other.
+  reactions: ReactionData[]
   finalState: RoomState | null  // frozen snapshot on game end
   winner: { id: string; nickname: string } | null
 
@@ -31,6 +35,8 @@ interface State {
   playerOut: (o: PlayerOut) => void
   playerPassed: (p: PlayerPassed) => void
   cityLearned: (c: CityLearned) => void
+  addReaction: (r: ReactionData) => void
+  pruneReactions: (olderThanMs: number) => void
   gameEnded: (r: RoomState, winnerID?: string, winnerNick?: string) => void
   reset: () => void
 }
@@ -47,6 +53,7 @@ export const useStore = create<State>((set) => ({
   lastOut: null,
   lastPassed: null,
   lastLearned: null,
+  reactions: [],
   finalState: null,
   winner: null,
 
@@ -80,11 +87,18 @@ export const useStore = create<State>((set) => ({
   }),
   playerPassed: (p) => set({ lastPassed: p }),
   cityLearned: (c) => set({ lastLearned: { city: c.city, at: Date.now() } }),
+  addReaction: (r) => set((s) => ({ reactions: [...s.reactions.slice(-19), r] })),
+  pruneReactions: (olderThanMs) => set((s) => {
+    const cutoff = Date.now() - olderThanMs
+    const next = s.reactions.filter((r) => r.ts >= cutoff)
+    return next.length === s.reactions.length ? {} : { reactions: next }
+  }),
   reset: () => set({
     status: 'idle', errorMessage: null,
     playerId: null, isHost: false,
     room: null, turn: null,
     lastRejection: null, lastOut: null, lastPassed: null, lastLearned: null,
+    reactions: [],
     finalState: null, winner: null,
   }),
 }))

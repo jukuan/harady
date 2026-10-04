@@ -66,6 +66,15 @@ export interface CityLearned {
   region?: string
 }
 
+export interface ReactionData {
+  player_id: string
+  nickname: string
+  emoji: string
+  chain_index: number
+  ts: number
+}
+
+
 
 
 export interface GameEnded {
@@ -85,4 +94,5 @@ export type ServerMessage =
   | { type: 'player_out';     data: PlayerOut }
   | { type: 'game_ended';     data: GameEnded }
   | { type: 'city_learned';   data: CityLearned }
+  | { type: 'reaction';       data: ReactionData }
   | { type: 'error';          data: { message: string } }
