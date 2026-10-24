@@ -41,7 +41,7 @@ func NewRouter(cfg *config.Config, hub *game.Hub, cities *store.CityStore) *gin.
 		api.GET("/rooms/:code", func(c *gin.Context) {
 			room, err := hub.GetRoom(c.Param("code"))
 			if err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "room not found"})
+				c.JSON(http.StatusNotFound, gin.H{"error": "Пакой не знойдзены"})
 				return
 			}
 			c.JSON(http.StatusOK, room.Snapshot())

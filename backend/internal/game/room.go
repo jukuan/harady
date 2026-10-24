@@ -78,7 +78,7 @@ func (r *Room) Join(p *Player, c ClientHandle) error {
 	}
 
 	if len(r.players) >= MaxPlayers {
-		return fmt.Errorf("room full")
+		return fmt.Errorf("Пакой поўны")
 	}
 	if r.HostID == "" {
 		p.IsHost = true
@@ -123,10 +123,10 @@ func (r *Room) AddBotBy(hostID string) (*Player, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if hostID != r.HostID {
-		return nil, fmt.Errorf("only host can add bots")
+		return nil, fmt.Errorf("Толькі гаспадар можа дадаваць ботаў")
 	}
 	if len(r.players) >= MaxPlayers {
-		return nil, fmt.Errorf("room full")
+		return nil, fmt.Errorf("Пакой поўны")
 	}
 	p := &Player{ID: "bot-" + randString(6), Nickname: pickBotName(r.players), IsBot: true}
 	r.players[p.ID] = p
@@ -233,15 +233,15 @@ func (r *Room) Start(byPlayerID string) error {
 	r.mu.Lock()
 	if r.Phase != PhaseLobby && r.Phase != PhaseEnded {
 		r.mu.Unlock()
-		return fmt.Errorf("game already running")
+		return fmt.Errorf("Гульня ўжо ідзе")
 	}
 	if byPlayerID != r.HostID {
 		r.mu.Unlock()
-		return fmt.Errorf("only host can start")
+		return fmt.Errorf("Толькі гаспадар можа пачаць")
 	}
 	if len(r.players) < MinPlayers {
 		r.mu.Unlock()
-		return fmt.Errorf("need at least %d players", MinPlayers)
+		return fmt.Errorf("Патрэбна мінімум %d гульцоў", MinPlayers)
 	}
 	for _, p := range r.players {
 		p.Missed = 0

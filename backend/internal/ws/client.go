@@ -42,7 +42,7 @@ func ServeRoomWS(hub *game.Hub) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		room, err := hub.GetRoom(c.Param("code"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "room not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Пакой не знойдзены"})
 			return
 		}
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -84,7 +84,7 @@ func (c *Client) readPump() {
 		}
 		var msg game.ClientMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
-			c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "bad json"}})
+			c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "Некарэктныя дадзеныя"}})
 			continue
 		}
 		c.dispatch(msg)
@@ -167,20 +167,20 @@ func (c *Client) dispatch(msg game.ClientMessage) {
 			c.room.Pass(c.player.ID)
 		}
 	default:
-		c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "unknown message: " + msg.Type}})
+		c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "Невядомае паведамленне: " + msg.Type}})
 	}
 }
 
 func (c *Client) handleJoin(msg game.ClientMessage) {
 	if c.player != nil {
-		c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "already joined"}})
+		c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "Ты ўжо ў пакоі"}})
 		return
 	}
 	var d game.JoinData
 	_ = json.Unmarshal(msg.Data, &d)
 	nick := sanitizeNick(d.Nickname)
 	if nick == "" {
-		c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "nickname required"}})
+		c.Send(game.ServerMessage{Type: "error", Data: game.ErrorData{Message: "Увядзі імя"}})
 		return
 	}
 	// Reuse the client-supplied ID when present (reconnect / reload).

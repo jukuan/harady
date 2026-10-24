@@ -85,7 +85,7 @@ func rateLimit(l *limiter) gin.HandlerFunc {
 		key := c.ClientIP()
 		if !l.allow(key) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error": "too many requests, slow down",
+				"error": "Занадта шмат запытаў, пачакай",
 			})
 			return
 		}

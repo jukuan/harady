@@ -96,9 +96,12 @@ func randString(n int) string {
 	return string(b)
 }
 
+// botNicknames are Belarusian given names, one per bot seat. No "Bot "
+// prefix — the IsBot flag plus the "бот" chip in the UI already mark them.
+// If all names are taken, pickBotName falls back to "Бот-XXXX".
 var botNicknames = []string{
-	"Bot Ales", "Bot Yas", "Bot Vasya", "Bot Hanna",
-	"Bot Zmitser", "Bot Kazimir", "Bot Alesya", "Bot Minsk",
+	"Алесь", "Ясь", "Ганна", "Зміцер", "Казімір",
+	"Алеся", "Сымон", "Васіль", "Пятро", "Марыля",
 }
 
 func pickBotName(existing map[string]*Player) string {
@@ -111,7 +114,7 @@ func pickBotName(existing map[string]*Player) string {
 			return n
 		}
 	}
-	return "Bot-" + randString(4)
+	return "Бот-" + randString(4)
 }
 
 
