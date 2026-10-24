@@ -2,11 +2,11 @@ package store
 
 import (
 	"database/sql"
-	"unicode"
 	"encoding/json"
 	"errors"
 	"math/rand"
 	"strings"
+	"unicode"
 
 	"github.com/jukuan/harady/backend/internal/models"
 )
@@ -270,7 +270,6 @@ func (s *CityStore) Wipe() error {
 	return nil
 }
 
-
 // FindSimilar returns the DB entry that best matches the input, allowing
 // typos only in the middle of the word.
 //
@@ -353,7 +352,6 @@ func (s *CityStore) FindSimilar(input string) (*models.City, error) {
 	}
 	return best, nil
 }
-
 
 // AddLearned inserts a city discovered by players at runtime (three-strikes
 // rule). The row is marked source='learned' so it can be audited or purged

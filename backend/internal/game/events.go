@@ -84,7 +84,6 @@ type PlayerPassed struct {
 	IsBot    bool   `json:"is_bot"`
 }
 
-
 type GameEnded struct {
 	WinnerID   string       `json:"winner_id,omitempty"`
 	WinnerNick string       `json:"winner_nickname,omitempty"`

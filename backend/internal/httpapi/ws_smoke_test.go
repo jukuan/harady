@@ -38,8 +38,12 @@ func setupServer(t *testing.T) (string, string) {
 
 	cities := store.NewCityStore(conn)
 	for _, c := range []models.City{
-		{Name: "Мінск"}, {Name: "Кіеў"}, {Name: "Варшава"},
-		{Name: "Амстэрдам"}, {Name: "Магілёў"}, {Name: "Гомель"},
+		{Name: "Мінск"},
+		{Name: "Кіеў"},
+		{Name: "Варшава"},
+		{Name: "Амстэрдам"},
+		{Name: "Магілёў"},
+		{Name: "Гомель"},
 	} {
 		if _, err := cities.Create(&c); err != nil {
 			t.Fatalf("seed %s: %v", c.Name, err)
@@ -69,7 +73,9 @@ func createRoom(t *testing.T, base string) string {
 		t.Fatalf("create: %v", err)
 	}
 	defer resp.Body.Close()
-	var b struct{ Code string `json:"code"` }
+	var b struct {
+		Code string `json:"code"`
+	}
 	_ = json.NewDecoder(resp.Body).Decode(&b)
 	if b.Code == "" {
 		t.Fatal("empty room code")
@@ -310,11 +316,12 @@ func TestWS_PassTwiceEliminates(t *testing.T) {
 	first := decode[game.TurnStarted](t, a.wait("turn_started", 2*time.Second))
 	var actor, other *client
 	var actorID, otherID string
-	if first.PlayerID == aID {
+	switch first.PlayerID {
+	case aID:
 		actor, actorID, other, otherID = a, aID, b, bID
-	} else if first.PlayerID == bID {
+	case bID:
 		actor, actorID, other, otherID = b, bID, a, aID
-	} else {
+	default:
 		t.Fatalf("unknown first player %q", first.PlayerID)
 	}
 

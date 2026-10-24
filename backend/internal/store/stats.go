@@ -28,7 +28,9 @@ type StatsSummary struct {
 }
 
 func (s *CityStore) RecordSubmission(cityID int64, roomCode string) {
-	if cityID <= 0 { return }
+	if cityID <= 0 {
+		return
+	}
 	select {
 	case s.submissions <- submission{cityID: cityID, roomCode: roomCode}:
 	default:
@@ -53,7 +55,9 @@ func (s *CityStore) BottomCities(limit int) ([]CityStat, error) {
 }
 
 func (s *CityStore) rankedCities(limit int, dir string) ([]CityStat, error) {
-	if limit <= 0 || limit > 1000 { limit = 50 }
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+	}
 	q := `
 SELECT c.id, c.name, c.region, COUNT(s.id) AS cnt
 FROM cities c
@@ -61,8 +65,11 @@ LEFT JOIN city_submissions s ON s.city_id = c.id
 GROUP BY c.id, c.name, c.region
 ORDER BY cnt ` + dir + `, c.name COLLATE NOCASE ASC
 LIMIT ?`
+	//nolint:gosec // `dir` is a compile-time constant ("ASC"|"DESC"), never user input
 	rows, err := s.db.Query(q, limit)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var out []CityStat
 	for rows.Next() {
@@ -77,7 +84,9 @@ LIMIT ?`
 
 func (s *CityStore) CityStatByName(name string) (*CityStat, error) {
 	city, err := s.FindSimilar(name)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	q := `
 SELECT c.id, c.name, c.region, COUNT(s.id)
 FROM cities c
@@ -86,7 +95,9 @@ WHERE c.id = ?
 GROUP BY c.id, c.name, c.region`
 	var out CityStat
 	if err := s.db.QueryRow(q, city.ID).Scan(&out.ID, &out.Name, &out.Region, &out.Count); err != nil {
-		if err == sql.ErrNoRows { return nil, ErrNotFound }
+		if err == sql.ErrNoRows {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	return &out, nil
@@ -104,7 +115,9 @@ func (s *CityStore) Summary() (*StatsSummary, error) {
 		return nil, err
 	}
 	sum.NeverUsed = sum.TotalCities - sum.UniqueCitiesUsed
-	if sum.NeverUsed < 0 { sum.NeverUsed = 0 }
+	if sum.NeverUsed < 0 {
+		sum.NeverUsed = 0
+	}
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM cities WHERE source = 'learned'`).Scan(&sum.LearnedCities); err != nil {
 		return nil, err
 	}

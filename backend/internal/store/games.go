@@ -137,11 +137,21 @@ func (s *CityStore) GameSummary() (*GameSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	if maxChain.Valid { sum.MaxChainLength = int(maxChain.Int64) }
-	if maxHuman.Valid { sum.MaxChainHuman = int(maxHuman.Int64) }
-	if avg.Valid { sum.AvgChainLength = avg.Float64 }
-	if total.Valid { sum.TotalMoves = int(total.Int64) }
-	if withBots.Valid { sum.GamesWithBots = int(withBots.Int64) }
+	if maxChain.Valid {
+		sum.MaxChainLength = int(maxChain.Int64)
+	}
+	if maxHuman.Valid {
+		sum.MaxChainHuman = int(maxHuman.Int64)
+	}
+	if avg.Valid {
+		sum.AvgChainLength = avg.Float64
+	}
+	if total.Valid {
+		sum.TotalMoves = int(total.Int64)
+	}
+	if withBots.Valid {
+		sum.GamesWithBots = int(withBots.Int64)
+	}
 	if lastAt.Valid {
 		if t, err := time.Parse("2006-01-02 15:04:05", lastAt.String); err == nil {
 			sum.LastGameAt = &t

@@ -12,7 +12,9 @@ import (
 func newStatsStore(t *testing.T) *CityStore {
 	t.Helper()
 	conn, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = conn.Close() })
 	return NewCityStore(conn)
 }
@@ -29,7 +31,9 @@ func TestTopAndBottomCities(t *testing.T) {
 		id, _ := s.Create(&models.City{Name: name})
 		ids[name] = id
 	}
-	for i := 0; i < 3; i++ { recordAndWait(s, ids["Мінск"], "r1") }
+	for i := 0; i < 3; i++ {
+		recordAndWait(s, ids["Мінск"], "r1")
+	}
 	recordAndWait(s, ids["Гомель"], "r1")
 	top, _ := s.TopCities(10)
 	if len(top) == 0 || top[0].Name != "Мінск" || top[0].Count != 3 {

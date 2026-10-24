@@ -117,7 +117,6 @@ func pickBotName(existing map[string]*Player) string {
 	return "Бот-" + randString(4)
 }
 
-
 // validLearnedCity reports whether a not-in-DB city name is worth learning
 // into the DB. This is the only gate between an arbitrary player string and
 // the shared cities table, so it is deliberately conservative.

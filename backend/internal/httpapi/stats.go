@@ -19,7 +19,9 @@ func registerStatsRoutes(api *gin.RouterGroup, cfg *config.Config, cities *store
 	admin.GET("/stats/cities", func(c *gin.Context) {
 		sort := c.DefaultQuery("sort", "top")
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-		if limit <= 0 || limit > 1000 { limit = 50 }
+		if limit <= 0 || limit > 1000 {
+			limit = 50
+		}
 		var (
 			rows []store.CityStat
 			err  error
@@ -63,7 +65,9 @@ func registerStatsRoutes(api *gin.RouterGroup, cfg *config.Config, cities *store
 	admin.GET("/stats/games", func(c *gin.Context) {
 		sort := c.DefaultQuery("sort", "longest")
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-		if limit <= 0 || limit > 1000 { limit = 20 }
+		if limit <= 0 || limit > 1000 {
+			limit = 20
+		}
 		var (
 			rows []*store.GameStat
 			err  error
@@ -94,8 +98,12 @@ func requireAdminToken(want string) gin.HandlerFunc {
 }
 
 func constantTimeEqual(a, b string) bool {
-	if len(a) != len(b) { return false }
+	if len(a) != len(b) {
+		return false
+	}
 	var v byte
-	for i := 0; i < len(a); i++ { v |= a[i] ^ b[i] }
+	for i := 0; i < len(a); i++ {
+		v |= a[i] ^ b[i]
+	}
 	return v == 0
 }

@@ -15,7 +15,7 @@ import (
 // Parent directories are created automatically. Migrations are idempotent:
 // each one is recorded in schema_migrations and only applied once.
 func Open(path string) (*sql.DB, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("mkdir db dir: %w", err)
 	}
 	dsn := fmt.Sprintf(

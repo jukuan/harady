@@ -1,0 +1,76 @@
+# golangci-lint v2 configuration.
+# Docs: https://golangci-lint.run/docs/configuration/file/
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - errorlint
+    - bodyclose
+    - sqlclosecheck
+    - revive
+    - misspell
+    - nolintlint
+    - gosec
+
+  settings:
+    errcheck:
+      # These Close() calls are universally safe to ignore: they return an
+      # error only on truly unrecoverable I/O, and there is nothing the
+      # caller can do about it. Everything else still must be handled.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (net/http.ResponseWriter).Write
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+    gosec:
+      excludes:
+        # G404: math/rand is fine for game logic — no crypto involved.
+        - G404
+
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: var-naming
+        - name: package-comments
+          disabled: true
+
+  exclusions:
+    generated: lax
+
+    rules:
+      # Test files: fixture errors are often ignored on purpose.
+      - path: _test\.go$
+        linters:
+          - errcheck
+          - bodyclose
+          - gosec
+
+      # All errors returned from internal/game are user-facing UI strings
+      # (shown in toasts / by the turn banner). They are capitalised on
+      # purpose, unlike idiomatic library errors. ST1005 is a false positive
+      # for this package.
+      - path: internal/game/
+        text: 'ST1005'
+        linters:
+          - staticcheck
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
