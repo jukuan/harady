@@ -10,7 +10,7 @@ export default function Landing() {
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
-  const [err, setErr]   = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_NICKNAME)
@@ -26,7 +26,10 @@ export default function Landing() {
     e.preventDefault()
     setErr(null)
     const n = name.trim()
-    if (!n) { setErr(S.nameRequired); return }
+    if (!n) {
+      setErr(S.nameRequired)
+      return
+    }
     remember(n)
     setBusy(true)
     try {
@@ -46,8 +49,14 @@ export default function Landing() {
     setErr(null)
     const n = name.trim()
     const c = code.trim().toUpperCase()
-    if (!n) { setErr(S.nameRequired); return }
-    if (!/^[A-Z0-9]{4,12}$/.test(c)) { setErr(S.invalidCode); return }
+    if (!n) {
+      setErr(S.nameRequired)
+      return
+    }
+    if (!/^[A-Z0-9]{4,12}$/.test(c)) {
+      setErr(S.invalidCode)
+      return
+    }
     remember(n)
     nav(`/room/${c}`)
   }
@@ -56,8 +65,10 @@ export default function Landing() {
     <div className="min-h-full flex flex-col items-center justify-center p-5">
       <div className="w-full max-w-md flex flex-col gap-5 animate-pop">
         <header className="text-center">
-          <div className="mx-auto w-20 h-20 rounded-3xl bg-primary text-white grid place-items-center
-                          text-4xl font-black shadow-[0_6px_0_0_theme(colors.primary.dark)]">
+          <div
+            className="mx-auto w-20 h-20 rounded-3xl bg-primary text-white grid place-items-center
+                          text-4xl font-black shadow-[0_6px_0_0_theme(colors.primary.dark)]"
+          >
             H
           </div>
           <h1 className="mt-4 text-4xl font-black tracking-tight">{S.appName}</h1>

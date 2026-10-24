@@ -3,15 +3,30 @@
 @tailwind utilities;
 
 @layer base {
-  html, body, #root { height: 100%; }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
   body {
     @apply bg-slate-50 text-slate-900 antialiased;
-    font-family: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif;
+    font-family:
+      'Nunito',
+      ui-rounded,
+      'SF Pro Rounded',
+      system-ui,
+      -apple-system,
+      sans-serif;
     font-weight: 700;
     -webkit-tap-highlight-color: transparent;
   }
-  button { @apply select-none; }
-  input, textarea { font-family: inherit; }
+  button {
+    @apply select-none;
+  }
+  input,
+  textarea {
+    font-family: inherit;
+  }
 }
 
 @layer components {
@@ -24,11 +39,21 @@
            disabled:opacity-50 disabled:cursor-not-allowed disabled:active:translate-y-0;
     box-shadow: 0 4px 0 0 rgba(0, 0, 0, 0.18);
   }
-  .btn:disabled { box-shadow: 0 4px 0 0 rgba(0, 0, 0, 0.10); }
-  .btn-primary   { @apply bg-primary   hover:brightness-105; }
-  .btn-secondary { @apply bg-secondary hover:brightness-105; }
-  .btn-success   { @apply bg-success   hover:brightness-105; }
-  .btn-danger    { @apply bg-danger    hover:brightness-105; }
+  .btn:disabled {
+    box-shadow: 0 4px 0 0 rgba(0, 0, 0, 0.1);
+  }
+  .btn-primary {
+    @apply bg-primary   hover:brightness-105;
+  }
+  .btn-secondary {
+    @apply bg-secondary hover:brightness-105;
+  }
+  .btn-success {
+    @apply bg-success   hover:brightness-105;
+  }
+  .btn-danger {
+    @apply bg-danger    hover:brightness-105;
+  }
   .btn-ghost {
     @apply bg-white text-slate-700 normal-case tracking-normal;
     box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.08);
@@ -43,9 +68,15 @@
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-extrabold;
   }
-  .chip-you  { @apply bg-primary/10   text-primary-dark; }
-  .chip-host { @apply bg-warn/10      text-warn-dark; }
-  .chip-bot  { @apply bg-secondary/10 text-secondary-dark; }
+  .chip-you {
+    @apply bg-primary/10   text-primary-dark;
+  }
+  .chip-host {
+    @apply bg-warn/10      text-warn-dark;
+  }
+  .chip-bot {
+    @apply bg-secondary/10 text-secondary-dark;
+  }
 
   .input {
     @apply w-full rounded-2xl border-2 border-slate-200 bg-white
@@ -56,14 +87,25 @@
 }
 
 @supports not (height: 100dvh) {
-  .h-dvh { height: 100vh; }
+  .h-dvh {
+    height: 100vh;
+  }
 }
 
 /* Floating emoji reactions. Rise from the bubble and fade. */
 @keyframes float-up {
-  0%   { transform: translate(0, 0) scale(0.6); opacity: 0; }
-  15%  { transform: translate(0, -8px) scale(1.15); opacity: 1; }
-  100% { transform: translate(0, -56px) scale(1); opacity: 0; }
+  0% {
+    transform: translate(0, 0) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    transform: translate(0, -8px) scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(0, -56px) scale(1);
+    opacity: 0;
+  }
 }
 .animate-float-up {
   animation: float-up 1.8s ease-out forwards;

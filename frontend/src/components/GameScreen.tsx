@@ -16,14 +16,7 @@ interface Props {
   onExit: () => void
 }
 
-export default function GameScreen({
-  room,
-  onSubmitCity,
-  onPass,
-  onReact,
-  onEnd,
-  onExit,
-}: Props) {
+export default function GameScreen({ room, onSubmitCity, onPass, onReact, onEnd, onExit }: Props) {
   const me = useStore((s) => s.playerId)
   const rejection = useStore((s) => s.lastRejection)
   const lastOut = useStore((s) => s.lastOut)
@@ -53,7 +46,9 @@ export default function GameScreen({
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Turn change clears the input.
-  useEffect(() => { setText('') }, [room.current_turn_id])
+  useEffect(() => {
+    setText('')
+  }, [room.current_turn_id])
 
   // Auto-scroll the chain to the newest entry on every append.
   useEffect(() => {
@@ -68,7 +63,6 @@ export default function GameScreen({
   // One-time scroll on mount (covers joining a room with an existing chain).
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Prune reactions after they finish animating (float-up runs 1.8s).
@@ -82,23 +76,28 @@ export default function GameScreen({
   useEffect(() => {
     if (!rejection) return
     const label =
-      rejection.reason === 'wrong_letter' ? S.r_wrong_letter(room.required_letter) :
-      rejection.reason === 'already_used' ? S.r_already_used :
-      rejection.reason === 'not_in_db'    ? S.r_not_in_db :
-      S.r_empty
+      rejection.reason === 'wrong_letter'
+        ? S.r_wrong_letter(room.required_letter)
+        : rejection.reason === 'already_used'
+          ? S.r_already_used
+          : rejection.reason === 'not_in_db'
+            ? S.r_not_in_db
+            : S.r_empty
     setRejToast(label)
     const t = window.setTimeout(() => setRejToast(null), 2000)
     return () => window.clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rejection])
 
-  // Show "X is out" toast for 3s.
+  // Show "X is out" toast for 3s. The store replaces `lastOut` with a fresh
+  // object on each player-out event, so depending on the whole value fires
+  // exactly once per event and does not re-run on unrelated re-renders.
   useEffect(() => {
     if (!lastOut) return
     setOutToast(`${lastOut.nickname} ${S.out}`)
     const t = window.setTimeout(() => setOutToast(null), 3000)
     return () => window.clearTimeout(t)
-  }, [lastOut?.player_id, lastOut?.missed])
+  }, [lastOut])
 
   // Show "X passed" toast for 2.5s (skipped when the pass eliminates — the
   // player_out toast covers that).
@@ -108,7 +107,7 @@ export default function GameScreen({
     setPassToast(S.passedTurn(lastPassed.nickname, lastPassed.missed, room.max_misses))
     const t = window.setTimeout(() => setPassToast(null), 2500)
     return () => window.clearTimeout(t)
-  }, [lastPassed?.player_id, lastPassed?.missed, room.max_misses])
+  }, [lastPassed, room.max_misses])
 
   // Show "city learned" toast for 3.5s.
   useEffect(() => {
@@ -116,7 +115,7 @@ export default function GameScreen({
     setLearnedToast(S.cityLearned(lastLearned.city))
     const t = window.setTimeout(() => setLearnedToast(null), 3500)
     return () => window.clearTimeout(t)
-  }, [lastLearned?.at])
+  }, [lastLearned])
 
   const canSubmit = isMyTurn && !iAmOut && text.trim().length > 0
 
@@ -128,7 +127,11 @@ export default function GameScreen({
   }
 
   const copyCode = async () => {
-    try { await navigator.clipboard.writeText(room.code) } catch { /* ignore */ }
+    try {
+      await navigator.clipboard.writeText(room.code)
+    } catch {
+      /* ignore */
+    }
     setCopiedCode(true)
     window.setTimeout(() => setCopiedCode(false), 1500)
   }
@@ -160,9 +163,13 @@ export default function GameScreen({
               {isMyTurn && !iAmOut ? S.yourTurn : S.turnOf(room.current_turn_nickname)}
             </div>
             <div className="text-2xl font-black tracking-wide mt-0.5">
-              {room.required_letter
-                ? <>{S.nextLetter} <span className="text-primary-dark">«{room.required_letter}»</span></>
-                : S.firstMove}
+              {room.required_letter ? (
+                <>
+                  {S.nextLetter} <span className="text-primary-dark">«{room.required_letter}»</span>
+                </>
+              ) : (
+                S.firstMove
+              )}
             </div>
           </div>
         </div>
@@ -275,9 +282,7 @@ export default function GameScreen({
               </button>
             </div>
 
-            {liveHint && (
-              <div className="text-danger text-xs font-extrabold mt-1">{liveHint}</div>
-            )}
+            {liveHint && <div className="text-danger text-xs font-extrabold mt-1">{liveHint}</div>}
 
             <button
               className="btn btn-ghost w-full mt-2 !py-2 text-xs"

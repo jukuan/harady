@@ -74,9 +74,6 @@ export interface ReactionData {
   ts: number
 }
 
-
-
-
 export interface GameEnded {
   winner_id?: string
   winner_nickname?: string
@@ -85,14 +82,14 @@ export interface GameEnded {
 }
 
 export type ServerMessage =
-  | { type: 'joined';         data: { player_id: string; room: string; is_host: boolean } }
-  | { type: 'room_state';     data: RoomState }
-  | { type: 'turn_started';   data: TurnStarted }
-  | { type: 'chain_added';    data: ChainAdded }
+  | { type: 'joined'; data: { player_id: string; room: string; is_host: boolean } }
+  | { type: 'room_state'; data: RoomState }
+  | { type: 'turn_started'; data: TurnStarted }
+  | { type: 'chain_added'; data: ChainAdded }
   | { type: 'chain_rejected'; data: ChainRejected }
-  | { type: 'player_passed';  data: PlayerPassed }
-  | { type: 'player_out';     data: PlayerOut }
-  | { type: 'game_ended';     data: GameEnded }
-  | { type: 'city_learned';   data: CityLearned }
-  | { type: 'reaction';       data: ReactionData }
-  | { type: 'error';          data: { message: string } }
+  | { type: 'player_passed'; data: PlayerPassed }
+  | { type: 'player_out'; data: PlayerOut }
+  | { type: 'game_ended'; data: GameEnded }
+  | { type: 'city_learned'; data: CityLearned }
+  | { type: 'reaction'; data: ReactionData }
+  | { type: 'error'; data: { message: string } }

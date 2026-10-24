@@ -11,17 +11,41 @@ export function useRoomSocket(code: string | undefined, nickname: string) {
       (m: ServerMessage) => {
         const s = useStore.getState()
         switch (m.type) {
-          case 'joined':         s.setJoined(m.data.player_id, m.data.is_host); break
-          case 'room_state':     s.setRoom(m.data); break
-          case 'turn_started':   s.clearRejection(); s.setTurn(m.data); break
-          case 'chain_added':    s.clearRejection(); s.appendChain(m.data.entry, m.data.next_required_letter); break
-          case 'chain_rejected': s.reject(m.data); break
-          case 'player_passed':  s.playerPassed(m.data); break
-          case 'player_out':     s.playerOut(m.data); break
-          case 'city_learned':   s.cityLearned(m.data); break
-          case 'reaction':       s.addReaction(m.data); break
-          case 'game_ended':     s.gameEnded(s.room!, m.data.winner_id, m.data.winner_nickname); break
-          case 'error':          s.setStatus('error', m.data.message); break
+          case 'joined':
+            s.setJoined(m.data.player_id, m.data.is_host)
+            break
+          case 'room_state':
+            s.setRoom(m.data)
+            break
+          case 'turn_started':
+            s.clearRejection()
+            s.setTurn(m.data)
+            break
+          case 'chain_added':
+            s.clearRejection()
+            s.appendChain(m.data.entry, m.data.next_required_letter)
+            break
+          case 'chain_rejected':
+            s.reject(m.data)
+            break
+          case 'player_passed':
+            s.playerPassed(m.data)
+            break
+          case 'player_out':
+            s.playerOut(m.data)
+            break
+          case 'city_learned':
+            s.cityLearned(m.data)
+            break
+          case 'reaction':
+            s.addReaction(m.data)
+            break
+          case 'game_ended':
+            s.gameEnded(s.room!, m.data.winner_id, m.data.winner_nickname)
+            break
+          case 'error':
+            s.setStatus('error', m.data.message)
+            break
         }
       },
       (status, err) => {
@@ -39,11 +63,11 @@ export function useRoomSocket(code: string | undefined, nickname: string) {
   }, [code, nickname])
 
   return {
-    submitCity: (city: string)  => sock.send('submit_city', { city }),
-    pass:       ()              => sock.send('pass'),
-    react:      (emoji: string) => sock.send('react', { emoji }),
-    addBot:     ()              => sock.send('add_bot'),
-    startGame:  ()              => sock.send('start'),
-    endGame:    ()              => sock.send('end_game'),
+    submitCity: (city: string) => sock.send('submit_city', { city }),
+    pass: () => sock.send('pass'),
+    react: (emoji: string) => sock.send('react', { emoji }),
+    addBot: () => sock.send('add_bot'),
+    startGame: () => sock.send('start'),
+    endGame: () => sock.send('end_game'),
   }
 }

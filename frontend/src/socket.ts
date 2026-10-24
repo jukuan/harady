@@ -20,7 +20,8 @@ function getOrCreatePlayerId(code: string): string {
   try {
     const existing = sessionStorage.getItem(playerIdKey(code))
     if (existing) return existing
-    const id = (crypto as { randomUUID?: () => string }).randomUUID?.() ??
+    const id =
+      (crypto as { randomUUID?: () => string }).randomUUID?.() ??
       `p-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     sessionStorage.setItem(playerIdKey(code), id)
     return id
@@ -59,7 +60,11 @@ export function disconnect() {
     retryTimer = null
   }
   if (ws) {
-    try { ws.close() } catch { /* ignore */ }
+    try {
+      ws.close()
+    } catch {
+      /* ignore */
+    }
     ws = null
   }
 }
@@ -134,13 +139,21 @@ function open() {
       // Cache the server's canonical player_id — it may differ from the one
       // we sent if the server regenerated it.
       if (m.type === 'joined' && currentCode && m.data?.player_id) {
-        try { sessionStorage.setItem(playerIdKey(currentCode), m.data.player_id) } catch {}
+        try {
+          sessionStorage.setItem(playerIdKey(currentCode), m.data.player_id)
+        } catch {
+          // ignore
+        }
       }
       onMsg?.(m)
-    } catch { /* ignore malformed */ }
+    } catch {
+      /* ignore malformed */
+    }
   }
 
-  ws.onerror = () => { /* close handler will follow */ }
+  ws.onerror = () => {
+    /* close handler will follow */
+  }
 
   ws.onclose = () => {
     ws = null

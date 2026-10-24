@@ -1,7 +1,9 @@
 import { useStore } from '../store'
 import { S } from '../strings'
 
-interface Props { onExit: () => void }
+interface Props {
+  onExit: () => void
+}
 
 import { useState } from 'react'
 
@@ -19,11 +21,14 @@ export default function EndScreen({ onExit }: Props) {
       winner ? `🏆 ${winner.nickname}` : '🤝 Нічыя',
     ]
     const text = lines.join('\n')
-    try { await navigator.clipboard.writeText(text) } catch { /* ignore */ }
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      /* ignore */
+    }
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1500)
   }
-
 
   const chain = finalState.chain ?? []
   const players = finalState.players ?? []
@@ -62,12 +67,19 @@ export default function EndScreen({ onExit }: Props) {
         </h2>
         <ul className="flex flex-col gap-2">
           {ranked.map((p) => (
-            <li key={p.id} className="flex items-center justify-between bg-slate-50 rounded-2xl px-3 py-3">
+            <li
+              key={p.id}
+              className="flex items-center justify-between bg-slate-50 rounded-2xl px-3 py-3"
+            >
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-2xl">{p.is_bot ? '🤖' : '🙂'}</span>
                 <span className="font-extrabold truncate">{p.nickname}</span>
                 {p.is_bot && <span className="chip chip-bot">{S.bot}</span>}
-                {p.out && <span className="chip" style={{ background: '#fdecea', color: '#b71c1c' }}>{S.out}</span>}
+                {p.out && (
+                  <span className="chip" style={{ background: '#fdecea', color: '#b71c1c' }}>
+                    {S.out}
+                  </span>
+                )}
               </div>
               <span className="font-black tabular-nums text-lg">{named.get(p.id) ?? 0}</span>
             </li>
@@ -79,7 +91,9 @@ export default function EndScreen({ onExit }: Props) {
         <button className="btn btn-secondary w-full" onClick={copyResult}>
           {copied ? S.copied : S.shareResult}
         </button>
-        <button className="btn btn-primary w-full" onClick={onExit}>{S.backHome}</button>
+        <button className="btn btn-primary w-full" onClick={onExit}>
+          {S.backHome}
+        </button>
       </div>
     </div>
   )

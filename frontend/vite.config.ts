@@ -20,9 +20,7 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '/',
         lang: 'be',
-        icons: [
-          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
-        ],
+        icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
       },
       workbox: {
         // Only cache built assets, never anything that looks like a dev bundle.

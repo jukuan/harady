@@ -59,7 +59,10 @@ export default function Lobby({ room, onAddBot, onStart, onExit }: Props) {
         </h2>
         <ul className="flex flex-col gap-2">
           {room.players.map((p) => (
-            <li key={p.id} className="flex items-center justify-between bg-slate-50 rounded-2xl px-3 py-2">
+            <li
+              key={p.id}
+              className="flex items-center justify-between bg-slate-50 rounded-2xl px-3 py-2"
+            >
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-2xl">{p.is_bot ? '🤖' : '🙂'}</span>
                 <span className="font-extrabold truncate">{p.nickname}</span>
@@ -82,17 +85,11 @@ export default function Lobby({ room, onAddBot, onStart, onExit }: Props) {
           >
             + {S.addBot}
           </button>
-          <button
-            className="btn btn-primary w-full"
-            onClick={onStart}
-            disabled={!canStart}
-          >
+          <button className="btn btn-primary w-full" onClick={onStart} disabled={!canStart}>
             {S.start}
           </button>
           {!canStart && room.players.length < room.min_players && (
-            <p className="text-center text-slate-500 text-sm">
-              {S.needPlayers(room.min_players)}
-            </p>
+            <p className="text-center text-slate-500 text-sm">{S.needPlayers(room.min_players)}</p>
           )}
         </div>
       )}
