@@ -42,6 +42,8 @@ func main() {
 		del(cs, os.Args[2:])
 	case "seed":
 		seed(cs)
+	case "stats":
+		stats(cs, os.Args[2:])
 	case "reseed":
 		reseed(cs)
 	case "help", "-h", "--help":
@@ -174,6 +176,71 @@ func reseed(cs *store.CityStore) {
 		fatal(err)
 	}
 	fmt.Printf("reseeded %d cities\n", n)
+}
+
+func stats(cs *store.CityStore, args []string) {
+	if len(args) == 0 {
+		fmt.Println("usage: harady-cli stats {top|bottom|show|summary|games|recent|reset} [args]")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "top":
+		limit := 20; if len(args) >= 2 { if n, err := strconv.Atoi(args[1]); err == nil && n > 0 { limit = n } }
+		rows, err := cs.TopCities(limit); if err != nil { fatal(err) }; printStats(rows)
+	case "bottom":
+		limit := 20; if len(args) >= 2 { if n, err := strconv.Atoi(args[1]); err == nil && n > 0 { limit = n } }
+		rows, err := cs.BottomCities(limit); if err != nil { fatal(err) }; printStats(rows)
+	case "show":
+		if len(args) < 2 { fatal(errors.New("stats show <city>")) }
+		stat, err := cs.CityStatByName(args[1]); if err != nil { fatal(err) }
+		fmt.Printf("%-30s %5d  (%s)\n", stat.Name, stat.Count, stat.Region)
+	case "games":
+		limit := 20; if len(args) >= 2 { if n, err := strconv.Atoi(args[1]); err == nil && n > 0 { limit = n } }
+		rows, err := cs.LongestGames(limit); if err != nil { fatal(err) }; printGames(rows)
+	case "recent":
+		limit := 20; if len(args) >= 2 { if n, err := strconv.Atoi(args[1]); err == nil && n > 0 { limit = n } }
+		rows, err := cs.RecentGames(limit); if err != nil { fatal(err) }; printGames(rows)
+	case "summary":
+		sum, err := cs.Summary(); if err != nil { fatal(err) }
+		fmt.Println("── cities ──")
+		fmt.Printf("cities in pack       : %d\n", sum.TotalCities)
+		fmt.Printf("submissions recorded : %d\n", sum.TotalSubmissions)
+		fmt.Printf("cities ever played   : %d\n", sum.UniqueCitiesUsed)
+		fmt.Printf("cities never played  : %d\n", sum.NeverUsed)
+		fmt.Printf("learned cities       : %d\n", sum.LearnedCities)
+		gsum, err := cs.GameSummary(); if err != nil { fatal(err) }
+		fmt.Println()
+		fmt.Println("── games ──")
+		fmt.Printf("games played         : %d\n", gsum.TotalGames)
+		fmt.Printf("total moves          : %d\n", gsum.TotalMoves)
+		fmt.Printf("longest chain ever   : %d\n", gsum.MaxChainLength)
+		fmt.Printf("longest (no bots)    : %d\n", gsum.MaxChainHuman)
+		fmt.Printf("avg chain length     : %.1f\n", gsum.AvgChainLength)
+		fmt.Printf("games with bots      : %d\n", gsum.GamesWithBots)
+	case "reset":
+		if err := cs.ResetSubmissions(); err != nil { fatal(err) }
+		if err := cs.ResetGames(); err != nil { fatal(err) }
+		fmt.Println("submissions and games reset")
+	default:
+		fatal(fmt.Errorf("unknown stats subcommand: %s", args[0]))
+	}
+}
+
+func printStats(rows []store.CityStat) {
+	if len(rows) == 0 { fmt.Println("(no data)"); return }
+	fmt.Printf("%-4s %-30s %-25s %6s\n", "ID", "NAME", "REGION", "COUNT")
+	for _, r := range rows { fmt.Printf("%-4d %-30s %-25s %6d\n", r.ID, r.Name, r.Region, r.Count) }
+}
+
+func printGames(rows []*store.GameStat) {
+	if len(rows) == 0 { fmt.Println("(no games)"); return }
+	fmt.Printf("%-4s %-8s %6s %8s %5s %-15s %-16s\n", "ID", "ROOM", "CHAIN", "PLAYERS", "BOTS", "WINNER", "ENDED")
+	for _, g := range rows {
+		bots := "no"; if g.HasBots { bots = "yes" }
+		winner := g.WinnerNickname; if winner == "" { winner = "—" }
+		fmt.Printf("%-4d %-8s %6d %8d %5s %-15s %-16s\n",
+			g.ID, g.RoomCode, g.ChainLength, g.PlayersCount, bots, winner, g.EndedAt.Format("2006-01-02 15:04"))
+	}
 }
 
 func parseFlags(args []string) map[string]string {

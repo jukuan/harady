@@ -21,10 +21,25 @@ const (
 	MaxMisses  = 2
 	MaxCityLen = 80
 
-	// maxLearnedPerGame limits how many cities a single room can add to
-	// the DB. Prevents a spammer from filling the cities table in one sitting.
+	// maxLearnedPerGame limits how many cities a single room can add to the
+	// DB. Prevents a spammer from filling the cities table in one sitting.
 	maxLearnedPerGame = 3
 )
+
+// defaultTurnTimeout is set once at startup via SetTurnTimeout. Zero disables
+// the auto-pass safety net.
+var defaultTurnTimeout = 120 * time.Second
+
+// SetTurnTimeout configures the auto-pass timer for stuck turns.
+func SetTurnTimeout(d time.Duration) { defaultTurnTimeout = d }
+
+// allowedReactions is the server-side whitelist for the /react channel.
+var allowedReactions = map[string]bool{
+	"👍": true, "😂": true, "🔥": true, "❤️": true, "🤔": true,
+	"👏": true, "😮": true, "🙈": true, "🎉": true, "💀": true,
+}
+
+const reactCooldown = 400 * time.Millisecond
 
 type Room struct {
 	Code   string
@@ -41,19 +56,24 @@ type Room struct {
 	required  rune
 	turnID    string
 	lastTouch time.Time
+	startedAt time.Time
 
-	// Three-strikes cap: max learned cities per room per game.
 	learnedCount int
+
+	turnTimeout time.Duration
+	turnGen     uint64
+	turnTimer   *time.Timer
 }
 
 func newRoom(code string, cities *store.CityStore) *Room {
 	return &Room{
-		Code:      code,
-		Phase:     PhaseLobby,
-		players:   map[string]*Player{},
-		chainSet:  map[string]bool{},
-		lastTouch: time.Now(),
-		Cities:    cities,
+		Code:        code,
+		Phase:       PhaseLobby,
+		players:     map[string]*Player{},
+		chainSet:    map[string]bool{},
+		lastTouch:   time.Now(),
+		Cities:      cities,
+		turnTimeout: defaultTurnTimeout,
 	}
 }
 
@@ -63,9 +83,6 @@ func (r *Room) Join(p *Player, c ClientHandle) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Reattach: the client supplied a PlayerID we already know. This is the
-	// common case for a page reload — we keep the seat, the score, and the
-	// existing chain entries tagged with this ID.
 	if p.ID != "" {
 		if existing, ok := r.players[p.ID]; ok {
 			existing.Nickname = p.Nickname
@@ -170,7 +187,7 @@ func (r *Room) snapshotLocked() RoomState {
 	if players == nil {
 		players = []PlayerView{}
 	}
-	chain := append([]ChainEntry{}, r.chain...) // non-nil even when empty
+	chain := append([]ChainEntry{}, r.chain...)
 	return RoomState{
 		Code:            r.Code,
 		HostID:          r.HostID,
@@ -248,6 +265,7 @@ func (r *Room) Start(byPlayerID string) error {
 		p.Out = false
 		p.LastUnknown = ""
 		p.UnknownCount = 0
+		p.LastReactAt = time.Time{}
 	}
 	r.learnedCount = 0
 	r.chain = nil
@@ -256,6 +274,7 @@ func (r *Room) Start(byPlayerID string) error {
 	r.Phase = PhasePlaying
 	r.turnID = r.order[0]
 	r.lastTouch = time.Now()
+	r.startedAt = time.Now()
 
 	firstID := r.turnID
 	firstNick := ""
@@ -265,6 +284,9 @@ func (r *Room) Start(byPlayerID string) error {
 	r.broadcastLocked(ServerMessage{Type: "turn_started", Data: TurnStarted{
 		PlayerID: firstID, Nickname: firstNick, RequiredLetter: "", Round: 1,
 	}})
+	r.armTurnTimerLocked()
+	slog.Info("game started",
+		"room", r.Code, "players", len(r.players), "first", firstNick)
 	r.mu.Unlock()
 
 	r.BroadcastState()
@@ -280,10 +302,17 @@ func (r *Room) maybeKickBot(playerID string) {
 	if !active {
 		return
 	}
+	slog.Debug("kicking bot", "room", r.Code, "bot", p.Nickname)
 	go r.runBotTurn(p)
 }
 
 func (r *Room) advanceTurnLocked() {
+	r.turnGen++
+	if r.turnTimer != nil {
+		r.turnTimer.Stop()
+		r.turnTimer = nil
+	}
+
 	active := r.activeOrderLocked()
 	if len(active) == 0 {
 		r.endGameLocked("")
@@ -316,10 +345,47 @@ func (r *Room) advanceTurnLocked() {
 	r.broadcastLocked(ServerMessage{Type: "turn_started", Data: TurnStarted{
 		PlayerID: r.turnID, Nickname: nick, RequiredLetter: letter, Round: len(r.chain) + 1,
 	}})
+	r.armTurnTimerLocked()
+}
+
+func (r *Room) armTurnTimerLocked() {
+	if r.turnTimeout <= 0 {
+		return
+	}
+	gen := r.turnGen
+	timeout := r.turnTimeout
+	r.turnTimer = time.AfterFunc(timeout, func() {
+		r.mu.Lock()
+		if r.turnGen != gen || r.Phase != PhasePlaying {
+			r.mu.Unlock()
+			return
+		}
+		stuckID := r.turnID
+		stuck := r.players[stuckID]
+		nick := ""
+		isBot := false
+		if stuck != nil {
+			nick = stuck.Nickname
+			isBot = stuck.IsBot
+		}
+		slog.Warn("turn timeout — auto-pass",
+			"room", r.Code, "player", nick, "is_bot", isBot, "timeout", timeout.String())
+		nextID := r.passLocked(stuckID)
+		r.mu.Unlock()
+		if nextID != "" {
+			r.BroadcastState()
+			r.maybeKickBot(nextID)
+		}
+	})
 }
 
 func (r *Room) endGameLocked(winnerID string) {
+	wasPlaying := r.Phase == PhasePlaying
 	r.Phase = PhaseEnded
+	if r.turnTimer != nil {
+		r.turnTimer.Stop()
+		r.turnTimer = nil
+	}
 	winnerNick := ""
 	if winnerID != "" {
 		if p := r.players[winnerID]; p != nil {
@@ -337,6 +403,32 @@ func (r *Room) endGameLocked(winnerID string) {
 		Players:    players,
 		Chain:      chain,
 	}})
+
+	if wasPlaying && len(r.chain) >= 2 {
+		hasBots := false
+		for _, p := range r.players {
+			if p.IsBot {
+				hasBots = true
+				break
+			}
+		}
+		rec := store.GameRecord{
+			RoomCode:       r.Code,
+			ChainLength:    len(r.chain),
+			PlayersCount:   len(r.players),
+			HasBots:        hasBots,
+			WinnerNickname: winnerNick,
+			StartedAt:      r.startedAt,
+			EndedAt:        time.Now(),
+		}
+		go func() {
+			if err := r.Cities.RecordGame(rec); err != nil {
+				slog.Error("record game failed", "room", r.Code, "err", err)
+			}
+		}()
+		slog.Info("game recorded",
+			"room", r.Code, "chain", len(r.chain), "players", len(r.players), "has_bots", hasBots)
+	}
 }
 
 func (r *Room) sendRejectedLocked(playerID, reason, text string) {
@@ -345,54 +437,50 @@ func (r *Room) sendRejectedLocked(playerID, reason, text string) {
 	}
 }
 
-// SubmitCity is called when the player whose turn it is proposes a city.
-// The input is matched against the DB with typo tolerance; the canonical
-// DB name is what goes into the chain.
-//
-// Three-strikes self-healing: if the same unknown name is typed three times
-// in a row by the same player (and passes validation), it is inserted into
-// the DB with source='learned' and the move is accepted.
-func (r *Room) SubmitCity(playerID, raw string) {
+func (r *Room) SubmitCity(playerID, raw string) bool {
 	r.mu.Lock()
 	if r.Phase != PhasePlaying || playerID != r.turnID {
 		r.mu.Unlock()
-		return
+		slog.Debug("submit ignored (not your turn)",
+			"room", r.Code, "player", playerID, "turn", r.turnID)
+		return false
 	}
 	p := r.players[playerID]
 	if p == nil || p.Out {
 		r.mu.Unlock()
-		return
+		return false
 	}
 	city := strings.TrimSpace(raw)
 	if city == "" || len([]rune(city)) > MaxCityLen {
 		r.mu.Unlock()
-		return
+		return false
 	}
 	if r.required != 0 && FirstLetter(city) != r.required {
 		r.sendRejectedLocked(playerID, "wrong_letter", city)
 		r.mu.Unlock()
-		return
+		return false
 	}
 	r.mu.Unlock()
 
-	// Try the DB (with typo tolerance) first.
 	matched, err := r.Cities.FindSimilar(city)
+	var cityID int64
 	canonical := ""
 	if err == nil && matched != nil {
 		canonical = matched.Name
+		cityID = matched.ID
 		r.resetUnknown(playerID)
 	} else {
-		// Not in DB — try the three-strikes learning path.
-		learned, ok := r.tryLearnCity(playerID, city)
+		id, learned, ok := r.tryLearnCity(playerID, city)
 		if !ok {
 			r.mu.Lock()
 			if r.Phase == PhasePlaying && playerID == r.turnID {
 				r.sendRejectedLocked(playerID, "not_in_db", city)
 			}
 			r.mu.Unlock()
-			return
+			return false
 		}
 		canonical = learned
+		cityID = id
 	}
 
 	norm := NormalizeCity(canonical)
@@ -400,17 +488,24 @@ func (r *Room) SubmitCity(playerID, raw string) {
 	r.mu.Lock()
 	if r.Phase != PhasePlaying || playerID != r.turnID {
 		r.mu.Unlock()
-		return
+		return false
 	}
 	p = r.players[playerID]
 	if p == nil || p.Out {
 		r.mu.Unlock()
-		return
+		return false
 	}
 	if r.chainSet[norm] {
+		slog.Info("city rejected",
+			"room", r.Code, "player", p.Nickname, "city", canonical, "reason", "already_used")
 		r.sendRejectedLocked(playerID, "already_used", canonical)
 		r.mu.Unlock()
-		return
+		return false
+	}
+	slog.Info("city accepted",
+		"room", r.Code, "player", p.Nickname, "is_bot", p.IsBot, "city", canonical)
+	if !p.IsBot {
+		r.Cities.RecordSubmission(cityID, r.Code)
 	}
 	entry := ChainEntry{PlayerID: p.ID, Nickname: p.Nickname, City: canonical, IsBot: p.IsBot}
 	r.chain = append(r.chain, entry)
@@ -431,9 +526,9 @@ func (r *Room) SubmitCity(playerID, raw string) {
 
 	r.BroadcastState()
 	r.maybeKickBot(nextID)
+	return true
 }
 
-// resetUnknown clears the three-strikes counter for a player.
 func (r *Room) resetUnknown(playerID string) {
 	r.mu.Lock()
 	if p := r.players[playerID]; p != nil {
@@ -443,13 +538,10 @@ func (r *Room) resetUnknown(playerID string) {
 	r.mu.Unlock()
 }
 
-// tryLearnCity implements the three-strikes rule. Returns the canonical name
-// to use if the city was learned (or a duplicate insert raced), or ("", false)
-// if the move should be rejected as not_in_db.
-func (r *Room) tryLearnCity(playerID, city string) (string, bool) {
+func (r *Room) tryLearnCity(playerID, city string) (int64, string, bool) {
 	if !validLearnedCity(city) {
 		r.resetUnknown(playerID)
-		return "", false
+		return 0, "", false
 	}
 	norm := NormalizeCity(city)
 
@@ -457,7 +549,7 @@ func (r *Room) tryLearnCity(playerID, city string) (string, bool) {
 	p := r.players[playerID]
 	if p == nil {
 		r.mu.Unlock()
-		return "", false
+		return 0, "", false
 	}
 	if p.LastUnknown == norm {
 		p.UnknownCount++
@@ -470,27 +562,28 @@ func (r *Room) tryLearnCity(playerID, city string) (string, bool) {
 	r.mu.Unlock()
 
 	if count < 3 {
-		return "", false
+		return 0, "", false
 	}
 	if capReached {
-		return "", false
+		return 0, "", false
 	}
 
 	canonical := capitalizeFirst(city)
-	_, err := r.Cities.AddLearned(canonical, "")
+	id, err := r.Cities.AddLearned(canonical, "")
 	if err != nil && !errors.Is(err, store.ErrDuplicate) {
-		// Real DB error (disk full, etc.) — do not accept the move.
-		return "", false
+		return 0, "", false
 	}
-	// ErrDuplicate means someone else just inserted it. Either way, use the
-	// canonical name and proceed.
+	if errors.Is(err, store.ErrDuplicate) {
+		if existing, ferr := r.Cities.FindSimilar(canonical); ferr == nil && existing != nil {
+			id = existing.ID
+		}
+	}
 
 	r.mu.Lock()
-	if p := r.players[playerID]; p != nil {
-		p.LastUnknown = ""
-		p.UnknownCount = 0
+	if pp := r.players[playerID]; pp != nil {
+		pp.LastUnknown = ""
+		pp.UnknownCount = 0
 	}
-	// Only count it against the game cap when we actually inserted.
 	if err == nil {
 		r.learnedCount++
 	}
@@ -499,37 +592,44 @@ func (r *Room) tryLearnCity(playerID, city string) (string, bool) {
 	}})
 	r.mu.Unlock()
 
-	return canonical, true
+	return id, canonical, true
 }
 
-// Pass is when a player gives up their turn.
 func (r *Room) Pass(playerID string) {
 	r.mu.Lock()
-	if r.Phase != PhasePlaying || playerID != r.turnID {
-		r.mu.Unlock()
+	nextID := r.passLocked(playerID)
+	r.mu.Unlock()
+	if nextID == "" {
 		return
+	}
+	r.BroadcastState()
+	r.maybeKickBot(nextID)
+}
+
+func (r *Room) passLocked(playerID string) string {
+	if r.Phase != PhasePlaying || playerID != r.turnID {
+		return ""
 	}
 	p := r.players[playerID]
 	if p == nil || p.Out {
-		r.mu.Unlock()
-		return
+		return ""
 	}
 	p.Missed++
+	slog.Info("player passed",
+		"room", r.Code, "player", p.Nickname, "is_bot", p.IsBot, "missed", p.Missed)
 	r.broadcastLocked(ServerMessage{Type: "player_passed", Data: PlayerPassed{
 		PlayerID: p.ID, Nickname: p.Nickname, Missed: p.Missed, IsBot: p.IsBot,
 	}})
 	if p.Missed >= MaxMisses {
 		p.Out = true
+		slog.Info("player out",
+			"room", r.Code, "player", p.Nickname, "missed", p.Missed)
 		r.broadcastLocked(ServerMessage{Type: "player_out", Data: PlayerOut{
 			PlayerID: p.ID, Nickname: p.Nickname, Missed: p.Missed,
 		}})
 	}
 	r.advanceTurnLocked()
-	nextID := r.turnID
-	r.mu.Unlock()
-
-	r.BroadcastState()
-	r.maybeKickBot(nextID)
+	return r.turnID
 }
 
 func (r *Room) ForceEnd(byPlayerID string) {
@@ -543,42 +643,10 @@ func (r *Room) ForceEnd(byPlayerID string) {
 	r.BroadcastState()
 }
 
-// CloseAll sends a "service restart" close to every human player.
-// Called by Hub.Shutdown on SIGTERM.
-func (r *Room) CloseAll() {
-	r.mu.RLock()
-	players := make([]*Player, 0, len(r.players))
-	for _, id := range r.order {
-		if p := r.players[id]; p != nil && !p.IsBot {
-			players = append(players, p)
-		}
-	}
-	r.mu.RUnlock()
-	for _, p := range players {
-		p.Send(ServerMessage{Type: "server_shutdown", Data: nil})
-	}
-}
-
-
-// allowedReactions is the server-side whitelist. A modified client cannot
-// inject arbitrary text into the reaction stream — only these exact strings
-// are accepted.
-var allowedReactions = map[string]bool{
-	"👍": true, "😂": true, "🔥": true, "❤️": true, "🤔": true,
-	"👏": true, "😮": true, "🙈": true, "🎉": true, "💀": true,
-}
-
-// reactCooldown limits how often a single player can react.
-const reactCooldown = 400 * time.Millisecond
-
-// React broadcasts a floating emoji attached to the latest chain entry.
-// Rate-limited per player; silent no-op if the whitelist, cooldown, or
-// game state reject it. Never fails the caller.
 func (r *Room) React(playerID, emoji string) {
 	if !allowedReactions[emoji] {
 		return
 	}
-
 	r.mu.Lock()
 	if r.Phase != PhasePlaying && r.Phase != PhaseEnded {
 		r.mu.Unlock()
@@ -596,8 +664,6 @@ func (r *Room) React(playerID, emoji string) {
 	}
 	p.LastReactAt = now
 
-	// Attach to the last chain entry. If the chain is empty, still broadcast
-	// with chain_index = -1 — the client renders it at the bottom.
 	idx := len(r.chain) - 1
 	if idx < 0 {
 		idx = -1
@@ -611,6 +677,19 @@ func (r *Room) React(playerID, emoji string) {
 	}
 	r.broadcastLocked(ServerMessage{Type: "reaction", Data: payload})
 	r.mu.Unlock()
-
 	slog.Debug("reaction", "room", r.Code, "player", p.Nickname, "emoji", emoji, "index", idx)
+}
+
+func (r *Room) CloseAll() {
+	r.mu.RLock()
+	players := make([]*Player, 0, len(r.players))
+	for _, id := range r.order {
+		if p := r.players[id]; p != nil && !p.IsBot {
+			players = append(players, p)
+		}
+	}
+	r.mu.RUnlock()
+	for _, p := range players {
+		p.Send(ServerMessage{Type: "server_shutdown", Data: nil})
+	}
 }

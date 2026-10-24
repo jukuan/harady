@@ -16,9 +16,22 @@ var (
 	ErrDuplicate = errors.New("city with this name already exists")
 )
 
-type CityStore struct{ db *sql.DB }
+type CityStore struct {
+	db *sql.DB
 
-func NewCityStore(db *sql.DB) *CityStore { return &CityStore{db: db} }
+	// Analytics events (accepted human submissions). Buffered so gameplay
+	// never blocks on a DB write. See stats.go.
+	submissions chan submission
+}
+
+func NewCityStore(db *sql.DB) *CityStore {
+	s := &CityStore{
+		db:          db,
+		submissions: make(chan submission, 256),
+	}
+	go s.submissionWorker()
+	return s
+}
 
 const cols = `id, name, region, clues, source, created_at, updated_at`
 
