@@ -28,6 +28,7 @@ func NewHub(cfg *config.Config, cities *store.CityStore) *Hub {
 		rooms:  map[string]*Room{},
 	}
 	go h.cleanupLoop()
+	go h.watchdogLoop()
 	return h
 }
 
@@ -71,6 +72,29 @@ func (h *Hub) cleanupLoop() {
 			}
 		}
 		h.mu.Unlock()
+	}
+}
+
+// watchdogLoop scans every room every few seconds and re-kicks bots that are
+// on-turn but haven't acted. Idempotent: duplicate kicks are harmless because
+// runBotTurn checks r.turnID == p.ID before submitting.
+//
+// This is a safety net for rare races where maybeKickBot or runBotTurn
+// silently bails out — a bot can never be stuck for more than one tick.
+func (h *Hub) watchdogLoop() {
+	t := time.NewTicker(5 * time.Second)
+	defer t.Stop()
+	for range t.C {
+		h.mu.RLock()
+		rooms := make([]*Room, 0, len(h.rooms))
+		for _, r := range h.rooms {
+			rooms = append(rooms, r)
+		}
+		h.mu.RUnlock()
+
+		for _, r := range rooms {
+			r.kickBotOnTurnIfStuck()
+		}
 	}
 }
 

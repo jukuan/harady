@@ -1,6 +1,7 @@
 package game
 
 import (
+	"log/slog"
 	"math/rand"
 	"time"
 )
@@ -13,6 +14,7 @@ func (r *Room) runBotTurn(p *Player) {
 	r.mu.RLock()
 	if r.Phase != PhasePlaying || r.turnID != p.ID {
 		r.mu.RUnlock()
+		slog.Debug("bot aborted (turn moved on)")
 		return
 	}
 	if bp := r.players[p.ID]; bp == nil || bp.Out {

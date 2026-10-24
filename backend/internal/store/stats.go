@@ -58,6 +58,7 @@ func (s *CityStore) rankedCities(limit int, dir string) ([]CityStat, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 50
 	}
+	//nolint:gosec // `dir` is a compile-time constant ("ASC"|"DESC"), never user input
 	q := `
 SELECT c.id, c.name, c.region, COUNT(s.id) AS cnt
 FROM cities c
@@ -65,7 +66,6 @@ LEFT JOIN city_submissions s ON s.city_id = c.id
 GROUP BY c.id, c.name, c.region
 ORDER BY cnt ` + dir + `, c.name COLLATE NOCASE ASC
 LIMIT ?`
-	//nolint:gosec // `dir` is a compile-time constant ("ASC"|"DESC"), never user input
 	rows, err := s.db.Query(q, limit)
 	if err != nil {
 		return nil, err

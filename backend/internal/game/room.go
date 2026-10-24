@@ -81,7 +81,6 @@ func newRoom(code string, cities *store.CityStore) *Room {
 
 func (r *Room) Join(p *Player, c ClientHandle) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	if p.ID != "" {
 		if existing, ok := r.players[p.ID]; ok {
@@ -90,11 +89,20 @@ func (r *Room) Join(p *Player, c ClientHandle) error {
 			existing.client = c
 			existing.mu.Unlock()
 			r.lastTouch = time.Now()
+			nextID := r.turnID
+			phase := r.Phase
+			r.mu.Unlock()
+			// Safety net: if a bot is currently on turn but its goroutine
+			// died (server restart, race), the join re-nudges it.
+			if phase == PhasePlaying && nextID != "" {
+				r.maybeKickBot(nextID)
+			}
 			return nil
 		}
 	}
 
 	if len(r.players) >= MaxPlayers {
+		r.mu.Unlock()
 		return fmt.Errorf("Пакой поўны")
 	}
 	if r.HostID == "" {
@@ -107,6 +115,13 @@ func (r *Room) Join(p *Player, c ClientHandle) error {
 	r.players[p.ID] = p
 	r.order = append(r.order, p.ID)
 	r.lastTouch = time.Now()
+	nextID := r.turnID
+	phase := r.Phase
+	r.mu.Unlock()
+
+	if phase == PhasePlaying && nextID != "" {
+		r.maybeKickBot(nextID)
+	}
 	return nil
 }
 
@@ -132,8 +147,17 @@ func (r *Room) Leave(playerID string) {
 	if r.Phase == PhasePlaying && r.turnID == playerID {
 		r.advanceTurnLocked()
 	}
+	nextID := r.turnID
+	phase := r.Phase
 	r.mu.Unlock()
 	r.BroadcastState()
+
+	// If the turn passed to a bot because the human left (page refresh, tab
+	// close, network drop mid-turn), kick it. Without this the bot sleeps
+	// forever and the game stays stuck at its turn.
+	if phase == PhasePlaying && nextID != "" {
+		r.maybeKickBot(nextID)
+	}
 }
 
 func (r *Room) AddBotBy(hostID string) (*Player, error) {
@@ -692,4 +716,21 @@ func (r *Room) CloseAll() {
 	for _, p := range players {
 		p.Send(ServerMessage{Type: "server_shutdown", Data: nil})
 	}
+}
+
+// kickBotOnTurnIfStuck is called by the hub watchdog every few seconds.
+// If the current turn belongs to a bot, nudge it. The actual work is a no-op
+// if the bot is already acting or the turn has moved on.
+func (r *Room) kickBotOnTurnIfStuck() {
+	r.mu.RLock()
+	phase := r.Phase
+	turnID := r.turnID
+	p := r.players[turnID]
+	r.mu.RUnlock()
+	if phase != PhasePlaying || p == nil || !p.IsBot {
+		return
+	}
+	// Reuse the same path as a normal kick. If the bot is already running,
+	// its goroutine will finish first and this second one exits cleanly.
+	r.maybeKickBot(turnID)
 }
