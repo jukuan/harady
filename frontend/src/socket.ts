@@ -113,49 +113,72 @@ async function openWithPrecheck() {
 // ---- WS open + reconnect --------------------------------------------------
 
 function open() {
-  if (!currentCode || !currentNick) return
+  // Capture current values once. The handlers below must not read module
+  // vars directly — a subsequent connect() may have replaced them.
+  const code = currentCode
+  const nick = currentNick
+  if (!code || !nick) return
   onStatus?.(retry === 0 ? 'connecting' : 'reconnecting')
 
-  const url = `${WS_BASE}/ws/rooms/${encodeURIComponent(currentCode)}`
+  const url = `${WS_BASE}/ws/rooms/${encodeURIComponent(code)}`
+
+  let sock: WebSocket
   try {
-    ws = new WebSocket(url)
+    sock = new WebSocket(url)
   } catch {
     scheduleReconnect()
     return
   }
+  ws = sock
 
-  ws.onopen = () => {
+  // Every handler checks this. If a newer socket has replaced this one —
+  // which is exactly what happens under React 18 Strict Mode's dev
+  // double-mount, or any reconnect race — this socket becomes a no-op
+  // and is closed. Only the current socket delivers events.
+  const isCurrent = () => ws === sock
+
+  sock.onopen = () => {
+    if (!isCurrent()) {
+      sock.close()
+      return
+    }
     retry = 0
     onStatus?.('connected')
-    {
-      const pid = getOrCreatePlayerId(currentCode!)
-      ws?.send(JSON.stringify({ type: 'join', data: { nickname: currentNick, player_id: pid } }))
-    }
+    const pid = getOrCreatePlayerId(code)
+    sock.send(
+      JSON.stringify({
+        type: 'join',
+        data: { nickname: nick, player_id: pid },
+      }),
+    )
   }
 
-  ws.onmessage = (ev) => {
+  sock.onmessage = (ev) => {
+    if (!isCurrent()) return
     try {
       const m = JSON.parse(ev.data as string) as ServerMessage
       // Cache the server's canonical player_id — it may differ from the one
       // we sent if the server regenerated it.
-      if (m.type === 'joined' && currentCode && m.data?.player_id) {
+      if (m.type === 'joined' && m.data?.player_id) {
         try {
-          sessionStorage.setItem(playerIdKey(currentCode), m.data.player_id)
+          sessionStorage.setItem(playerIdKey(code), m.data.player_id)
         } catch {
-          // ignore
+          // sessionStorage may be unavailable (private mode, quota). Losing
+          // the cached id only means a fresh identity on reload.
         }
       }
       onMsg?.(m)
     } catch {
-      /* ignore malformed */
+      // ignore malformed frames
     }
   }
 
-  ws.onerror = () => {
-    /* close handler will follow */
+  sock.onerror = () => {
+    // close handler will follow
   }
 
-  ws.onclose = () => {
+  sock.onclose = () => {
+    if (!isCurrent()) return
     ws = null
     if (manuallyClosed) return
     scheduleReconnect()
