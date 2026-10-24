@@ -11,6 +11,7 @@ run() {
 run "formatting (fmt-check)"    ./bin/fmt-check.sh
 run "eslint"                    ./bin/lint.sh
 run "typescript (tsc)"          ./bin/typecheck.sh
+run "vitest"                    ./bin/test.sh
 run "vite build"                npm run build
 
 printf '\n\033[1;32m==> all checks passed\033[0m\n'
