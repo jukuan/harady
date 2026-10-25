@@ -6,7 +6,7 @@
 #   ./bin/test.sh                          # everything, race, no cache
 #   ./bin/test.sh ./internal/game          # one package
 #   ./bin/test.sh -run TestSubmitCity      # one test by name
-#   ./bin/test.sh -short                   # skip slow tests (bot-driven ones)
+#   ./bin/test.sh -short                   # skip slow tests
 #   ./bin/test.sh ./... -run TestWS_       # all WS smoke tests
 #
 # Env toggles:
@@ -28,10 +28,22 @@ if [ "${COVERAGE:-0}" = "1" ]; then
     args+=(-coverprofile=coverage.out -covermode=atomic)
 fi
 
-# If the caller didn't provide any packages / patterns, default to ./...
-# `go test` with only flags and no args implies ".", which would miss
-# subpackages — we want the whole tree by default.
-if [ "$#" -eq 0 ]; then
+# If the user didn't pass a package pattern, append ./... so the whole tree
+# runs. Go's `go test` with only flags defaults to ".", which would miss
+# subpackages.
+#
+# We treat any non-flag arg that looks like a path (starts with "./", is
+# ".", ends with "/..." or contains "/...") as a package pattern. Pure flags
+# (-short, -run NAME, -timeout 5m) don't count, so ./... gets appended.
+has_pkg=0
+for arg in "$@"; do
+    case "$arg" in
+        -*) ;;                     # flag — skip
+        */*|.|*...) has_pkg=1; break ;;
+    esac
+done
+
+if [ "$has_pkg" -eq 0 ]; then
     args+=(./...)
 else
     args+=("$@")

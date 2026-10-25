@@ -1,282 +1,170 @@
 #!/usr/bin/env bash
-# Harady deployment helper. Builds binaries and (optionally) installs a
-# systemd unit on this VPS.
+# Full deployment orchestrator.
+#
+# One command deploys everything:
+#   backend binary + systemd restart + migrations
+#   frontend bundle + nginx-readable permissions
+#   nginx reload (only if config is valid and harady vhosts exist)
+#   health checks for both halves
+#
+# Usage:
+#   bin/deploy.sh              # full deploy (default)
+#   bin/deploy.sh all          # same
+#   bin/deploy.sh backend      # backend only
+#   bin/deploy.sh frontend     # frontend only
+#   bin/deploy.sh seed         # add missing cities
+#   bin/deploy.sh reseed       # wipe + re-seed (prompts)
+#   bin/deploy.sh restart      # restart backend
+#   bin/deploy.sh status       # show backend + nginx status
+#   bin/deploy.sh logs         # follow backend logs
+#   bin/deploy.sh logs-web     # follow nginx logs
+#   bin/deploy.sh health       # both health checks
+#   bin/deploy.sh help
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKEND="$ROOT/backend"
-BIN="$ROOT/bin"
+BACKEND_DEPLOY="$ROOT/backend/deploy.sh"
+FRONTEND_DEPLOY="$ROOT/frontend/deploy.sh"
 
 APP_NAME="${APP_NAME:-harady}"
-INSTALL_DIR="${INSTALL_DIR:-/opt/harady}"
-SERVICE_USER="${SERVICE_USER:-harady}"
-LISTEN="${HARADY_ADDR:-:8101}"
-PORT="${LISTEN#:}"
-DB_PATH="${HARADY_DB_PATH:-$INSTALL_DIR/data/harady.db}"
-LANG_TAG="${HARADY_LANGUAGE:-be}"
-CORS_ORIGIN="${HARADY_CORS_ORIGINS:-https://harady.juljan.by}"
 
-cmd="${1:-build}"
+# Ensure sub-scripts are executable (self-healing).
+chmod +x "$BACKEND_DEPLOY" "$FRONTEND_DEPLOY" 2>/dev/null || true
 
-# ---------------------------------------------------------------------------
-# Preflight
-# ---------------------------------------------------------------------------
-preflight() {
-    command -v go >/dev/null || { echo "error: go not on PATH" >&2; exit 1; }
-    command -v sudo >/dev/null || { echo "error: sudo not available" >&2; exit 1; }
-    [ -d "$BACKEND" ] || { echo "error: $BACKEND not found" >&2; exit 1; }
-}
+cmd="${1:-all}"
 
-# Run the local quality gate before shipping. Can be skipped with SKIP_CHECKS=1.
-test_gate() {
-    if [ "${SKIP_CHECKS:-0}" = "1" ]; then
-        echo "==> SKIP_CHECKS=1 — skipping test gate"
-        return
+# ─────────────────────────────────────────────────────────────────────────────
+# Nginx
+# ─────────────────────────────────────────────────────────────────────────────
+
+nginx_reload() {
+    echo "==> Nginx"
+    if ! command -v nginx >/dev/null 2>&1; then
+        echo "    (nginx not installed — skipping)"
+        return 0
     fi
-    echo "==> Running backend tests before build"
-    if [ -x "$BACKEND/bin/test.sh" ]; then
-        (cd "$BACKEND" && ./bin/test.sh -short) || {
-            echo "error: backend tests failed — refusing to build" >&2
-            exit 1
-        }
-    else
-        (cd "$BACKEND" && go test -short ./...) || {
-            echo "error: backend tests failed — refusing to build" >&2
-            exit 1
-        }
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# Build
-# ---------------------------------------------------------------------------
-build() {
-    preflight
-    test_gate
-    echo "==> Building binaries into $BIN"
-    mkdir -p "$BIN"
-    (cd "$BACKEND" && go build -trimpath -ldflags="-s -w" -o "$BIN/harady-server" ./cmd/server)
-    (cd "$BACKEND" && go build -trimpath -ldflags="-s -w" -o "$BIN/harady-cli"    ./cmd/cli)
-    ls -lh "$BIN"/harady-*
-}
-
-# ---------------------------------------------------------------------------
-# Install
-# ---------------------------------------------------------------------------
-write_env_if_missing() {
-    if [ -f "$INSTALL_DIR/.env" ]; then
-        echo "==> Existing .env preserved at $INSTALL_DIR/.env"
-        # Warn about missing admin config without overwriting.
-        if ! sudo grep -q '^HARADY_ADMIN_EMAILS=.' "$INSTALL_DIR/.env"; then
-            echo "  ⚠  HARADY_ADMIN_EMAILS not set — admin panel will be unusable"
-        fi
-        if ! sudo grep -q '^HARADY_SMTP_HOST=.' "$INSTALL_DIR/.env"; then
-            echo "  ℹ  HARADY_SMTP_HOST not set — magic links go to the log, not email"
-        fi
-        return
+    if ! ls /etc/nginx/sites-enabled/harady-* >/dev/null 2>&1; then
+        echo "    (no harady vhosts in /etc/nginx/sites-enabled — skipping)"
+        return 0
     fi
 
-    echo "==> Writing starter .env at $INSTALL_DIR/.env"
-    sudo tee "$INSTALL_DIR/.env" >/dev/null <<ENVEOF
-# HTTP listen address
-HARADY_ADDR=$LISTEN
+    if ! sudo nginx -t >/tmp/nginx-t.log 2>&1; then
+        echo "    ✗ nginx config is invalid — NOT reloading (old config stays active)" >&2
+        sed 's/^/      /' /tmp/nginx-t.log >&2
+        rm -f /tmp/nginx-t.log
+        return 1
+    fi
+    rm -f /tmp/nginx-t.log
+    echo "    config valid — reloading"
+    sudo systemctl reload nginx
+    echo "    ✓ nginx reloaded"
+}
 
-# SQLite file
-HARADY_DB_PATH=$DB_PATH
+# ─────────────────────────────────────────────────────────────────────────────
+# Full deploy
+# ─────────────────────────────────────────────────────────────────────────────
 
-# CORS origin (the frontend URL)
-HARADY_CORS_ORIGINS=$CORS_ORIGIN
-
-# Language for the city pack
-HARADY_LANGUAGE=$LANG_TAG
-
-# Idle room GC
-HARADY_ROOM_IDLE_TTL=2h
-
-# Logging (JSON to stdout; systemd → journald)
-HARADY_LOG_LEVEL=info
-
-# Turn timer — auto-pass after N of inactivity
-HARADY_TURN_TIMEOUT=120s
-
-# Bot thinking delay (base ms; actual = base + rand[0..base])
-HARADY_BOT_DELAY_MS=600
-
-# Admin panel — comma-separated allow-list of admin emails.
-# Leave empty to disable admin panel login entirely.
-HARADY_ADMIN_EMAILS=
-
-# Admin panel base URL (frontend). Leave empty to infer from request / CORS.
-HARADY_ADMIN_BASE_URL=
-
-# API base URL for magic-link generation. Leave empty to infer from request.
-HARADY_API_BASE_URL=
-
-# Legacy token for scripted access to /api/admin/* (optional).
-HARADY_ADMIN_TOKEN=
-
-# SMTP for magic-link delivery. Leave HARADY_SMTP_HOST empty to log the link
-# instead of emailing it. Uncomment and fill for production email.
-# HARADY_SMTP_HOST=smtp.gmail.com
-# HARADY_SMTP_PORT=587
-# HARADY_SMTP_USER=you@gmail.com
-# HARADY_SMTP_PASS=xxxx xxxx xxxx xxxx
-# HARADY_SMTP_FROM=Harady <you@gmail.com>
-ENVEOF
-    sudo chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/.env"
+deploy_all() {
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo "  Harady — full deployment"
+    echo "═══════════════════════════════════════════════════════════════════"
     echo
-    echo "  ⚠  Edit $INSTALL_DIR/.env to set at least:"
-    echo "     HARADY_ADMIN_EMAILS (required for admin panel)"
-    echo "     HARADY_SMTP_*      (required for email delivery)"
+
+    git pull
+
+    # 1. Build everything first. If any build fails, the site stays up
+    #    on the current version — nothing is touched.
+    echo "── Building backend ─────────────────────────────────────────────"
+    bash "$BACKEND_DEPLOY" build
+
     echo
-}
+    echo "── Building frontend ────────────────────────────────────────────"
+    bash "$FRONTEND_DEPLOY" build
 
-install_systemd() {
-    if [ ! -x "$BIN/harady-server" ] || [ ! -x "$BIN/harady-cli" ]; then
-        echo "error: binaries not built — run 'bin/deploy.sh build' first" >&2
-        exit 1
-    fi
-
-    echo "==> Installing to $INSTALL_DIR (requires sudo)"
-    sudo mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/data"
-
-    # CRITICAL: stop the service before overwriting the binary.
-    # The running process holds harady-server open; 'sudo cp' would fail with
-    # "Text file busy" otherwise. 'stop' on a non-running service is a no-op.
-    echo "==> Stopping ${APP_NAME} (if running)"
-    sudo systemctl stop "${APP_NAME}" 2>/dev/null || true
-
-    sudo cp "$BIN/harady-server" "$INSTALL_DIR/bin/"
-    sudo cp "$BIN/harady-cli"    "$INSTALL_DIR/bin/"
-    sudo chmod +x "$INSTALL_DIR/bin/"*
-
-    if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
-        sudo useradd --system --home "$INSTALL_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
-    fi
-    sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
-
-    write_env_if_missing
-
-    sudo tee /etc/systemd/system/${APP_NAME}.service >/dev/null <<UNITEOF
-[Unit]
-Description=Harady game server
-After=network.target
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$INSTALL_DIR
-EnvironmentFile=$INSTALL_DIR/.env
-ExecStart=$INSTALL_DIR/bin/harady-server
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-UNITEOF
-
-    sudo systemctl daemon-reload
-    sudo systemctl enable "${APP_NAME}"
-    sudo systemctl start "${APP_NAME}"
-    sudo systemctl status "${APP_NAME}" --no-pager || true
-
-    health_check
-}
-
-health_check() {
+    # 2. Install backend. This stops the service, copies the new binary,
+    #    restarts (which runs migrations via db.Open), and health-checks.
     echo
-    echo "==> Health check (waiting up to 10s for :${PORT}/api/health)"
-    local ok=0
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-        if curl -sf "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
-            ok=1
-            break
-        fi
-        sleep 1
-    done
-    if [ "$ok" = "1" ]; then
-        echo "    ✓ service is healthy on :${PORT}"
-    else
-        echo "    ✗ service did not become healthy in 10s" >&2
-        echo "    Recent logs:" >&2
-        sudo journalctl -u "${APP_NAME}" -n 30 --no-pager >&2 || true
-        exit 1
-    fi
+    echo "── Installing backend ───────────────────────────────────────────"
+    bash "$BACKEND_DEPLOY" install
+
+    # 3. Fix frontend permissions so nginx can serve the new bundle.
+    echo
+    echo "── Fixing frontend permissions ──────────────────────────────────"
+    bash "$FRONTEND_DEPLOY" chmod
+
+    # 4. Reload nginx (no-op if configs aren't ours / invalid).
+    echo
+    nginx_reload
+
+    # 5. Final health checks.
+    echo
+    echo "── Final health checks ──────────────────────────────────────────"
+    bash "$BACKEND_DEPLOY" health
+    bash "$FRONTEND_DEPLOY" health
+
+    echo
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo "  ✓ Deployed"
+    echo "═══════════════════════════════════════════════════════════════════"
 }
 
-# ---------------------------------------------------------------------------
-# Seed / reseed
-# ---------------------------------------------------------------------------
-seed_db() {
-    if [ ! -x "$INSTALL_DIR/bin/harady-cli" ]; then
-        echo "error: $INSTALL_DIR/bin/harady-cli not found — run 'install' first" >&2
-        exit 1
-    fi
-    echo "==> Seeding cities in $INSTALL_DIR"
-    sudo -u "$SERVICE_USER" -H bash -c "cd '$INSTALL_DIR' && ./bin/harady-cli seed"
-}
+# ─────────────────────────────────────────────────────────────────────────────
+# Dispatch
+# ─────────────────────────────────────────────────────────────────────────────
 
-reseed_db() {
-    if [ ! -x "$INSTALL_DIR/bin/harady-cli" ]; then
-        echo "error: $INSTALL_DIR/bin/harady-cli not found — run 'install' first" >&2
-        exit 1
-    fi
-    if [ "${CONFIRM:-0}" != "1" ]; then
-        echo "⚠  reseed WIPES the entire cities table, including learned entries."
-        echo "   All in-progress games will dead-end on the next turn."
-        read -r -p "Type 'yes' to proceed: " ans
-        [ "$ans" = "yes" ] || { echo "aborted"; exit 1; }
-    fi
-    echo "==> Reseeding cities (wipes the table) in $INSTALL_DIR"
-    sudo -u "$SERVICE_USER" -H bash -c "cd '$INSTALL_DIR' && ./bin/harady-cli reseed"
-}
-
-# ---------------------------------------------------------------------------
-# Usage
-# ---------------------------------------------------------------------------
 usage() {
     cat <<USAGE
 Usage: bin/deploy.sh <command>
 
 Commands:
-  build              build harady-server + harady-cli into ./bin
-                     (runs tests first unless SKIP_CHECKS=1)
-  install            build + install binaries, .env, systemd unit;
-                     stops the service, copies files, restarts, health-checks
-  seed               add missing cities to the installed DB (idempotent)
-  reseed             wipe the cities table and re-seed from embedded pack
-                     (prompts unless CONFIRM=1)
-  restart            restart the systemd service
-  stop               stop the systemd service
-  status             show service status
-  logs               follow service logs (Ctrl+C to stop)
-  logs-snapshot      last 50 log lines, no follow
-  health             curl the /api/health endpoint
-  help
+  all (default)      deploy backend + frontend + nginx reload + health checks
+  backend            deploy backend only
+  frontend           deploy frontend only
+  seed               add missing cities to the installed DB
+  reseed             wipe + re-seed the cities table (prompts unless CONFIRM=1)
+  restart            restart the backend service
+  stop               stop the backend service
+  status             show backend + nginx status
+  logs               follow backend logs (journalctl -u harady -f)
+  logs-web           follow nginx logs
+  health             run both health checks
 
 Env overrides:
-  APP_NAME           systemd unit name (default: harady)
-  INSTALL_DIR        install path     (default: /opt/harady)
-  SERVICE_USER       service account  (default: harady)
-  HARADY_ADDR        listen address   (default: :8101)
-  HARADY_DB_PATH     SQLite path      (default: \$INSTALL_DIR/data/harady.db)
-  HARADY_CORS_ORIGINS allowed origin  (default: https://harady.juljan.by)
-  HARADY_LANGUAGE    city-pack lang   (default: be)
-  SKIP_CHECKS        1 = skip test gate
-  CONFIRM            1 = skip reseed prompt
+  APP_NAME, INSTALL_DIR, SERVICE_USER
+  HARADY_ADDR, HARADY_DB_PATH, HARADY_CORS_ORIGINS, HARADY_LANGUAGE
+  FRONTEND_DIST
+  SKIP_CHECKS=1      skip backend test gate
+  CONFIRM=1          skip reseed prompt
+
+Examples:
+  git pull && bin/deploy.sh           # typical full deploy
+  bin/deploy.sh backend               # backend only (no npm)
+  bin/deploy.sh seed                  # after adding cities*.txt
+  bin/deploy.sh logs                  # tail backend logs
 USAGE
 }
 
 case "$cmd" in
-    build)         build ;;
-    install)       build; install_systemd ;;
-    seed)          seed_db ;;
-    reseed)        reseed_db ;;
-    restart)       sudo systemctl restart "${APP_NAME}" ;;
-    stop)          sudo systemctl stop "${APP_NAME}" ;;
-    status)        sudo systemctl status "${APP_NAME}" --no-pager ;;
-    logs)          sudo journalctl -u "${APP_NAME}" -f ;;
-    logs-snapshot) sudo journalctl -u "${APP_NAME}" -n 50 --no-pager ;;
-    health)        curl -sf "http://127.0.0.1:${PORT}/api/health" && echo ;;
+    all|"")        deploy_all ;;
+    backend)       bash "$BACKEND_DEPLOY" all ;;
+    frontend)      bash "$FRONTEND_DEPLOY" deploy ;;
+    seed)          bash "$BACKEND_DEPLOY" seed ;;
+    reseed)        bash "$BACKEND_DEPLOY" reseed ;;
+    restart)       bash "$BACKEND_DEPLOY" restart ;;
+    stop)          bash "$BACKEND_DEPLOY" stop ;;
+    status)
+        bash "$BACKEND_DEPLOY" status
+        if command -v nginx >/dev/null 2>&1; then
+            echo
+            echo "── nginx ──"
+            systemctl is-active nginx && systemctl status nginx --no-pager | head -5 || true
+        fi
+        ;;
+    logs)          bash "$BACKEND_DEPLOY" logs ;;
+    logs-web)      sudo tail -f /var/log/nginx/error.log /var/log/nginx/access.log ;;
+    health)
+        bash "$BACKEND_DEPLOY" health
+        bash "$FRONTEND_DEPLOY" health
+        ;;
     help|*)        usage ;;
 esac
