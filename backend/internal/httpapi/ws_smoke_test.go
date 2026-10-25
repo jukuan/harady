@@ -15,6 +15,7 @@ import (
 
 	"github.com/jukuan/harady/backend/internal/config"
 	"github.com/jukuan/harady/backend/internal/db"
+	"github.com/jukuan/harady/backend/internal/email"
 	"github.com/jukuan/harady/backend/internal/game"
 	"github.com/jukuan/harady/backend/internal/httpapi"
 	"github.com/jukuan/harady/backend/internal/models"
@@ -58,8 +59,13 @@ func setupServer(t *testing.T) (string, string) {
 		RoomIdleTTL: time.Hour,
 	}
 	hub := game.NewHub(cfg, cities)
-	router := httpapi.NewRouter(cfg, hub, cities)
+	// Admin store + mailer are required by the new router signature.
+	// SMTP is disabled (empty host) — the mailer falls back to logging, which
+	// is fine because these tests never exercise admin routes.
+	adminStore := store.NewAdminStore(conn)
+	mailer := email.NewSender("", 0, "", "", "")
 
+	router := httpapi.NewRouter(cfg, hub, cities, adminStore, mailer, conn)
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
 
@@ -82,6 +88,10 @@ func createRoom(t *testing.T, base string) string {
 	}
 	return b.Code
 }
+
+// =============================================================================
+// wsClient: buffered reader with polling helpers
+// =============================================================================
 
 type client struct {
 	t    *testing.T
@@ -165,11 +175,33 @@ func joinAs(t *testing.T, c *client, nick string) string {
 	return id
 }
 
+// waitTurnFor consumes turn_started frames until one names the given player.
+// The server broadcasts turn_started to everyone, so a naive type-only match
+// can grab a stale frame for a different player and let the test race ahead
+// of the server.
+func (c *client) waitTurnFor(id string, timeout time.Duration) game.TurnStarted {
+	c.t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		m := c.wait("turn_started", remaining)
+		ts := decode[game.TurnStarted](c.t, m)
+		if ts.PlayerID == id {
+			return ts
+		}
+	}
+	c.t.Fatalf("timeout waiting for turn of %s", id)
+	return game.TurnStarted{}
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
 
-func TestWS_JoinThenRoomState(t *testing.T) {
+func TestWS_JoinAndState(t *testing.T) {
 	httpBase, wsBase := setupServer(t)
 	code := createRoom(t, httpBase)
 	c := dial(t, wsBase+"/ws/rooms/"+code)
@@ -200,6 +232,7 @@ func TestWS_ValidChainAdvances(t *testing.T) {
 	if turn.PlayerID != aID {
 		actor, other = b, a
 	}
+
 	// First move: any city. Actor submits "Мінск".
 	actor.send("submit_city", game.CityData{City: "Мінск"})
 	added := decode[game.ChainAdded](t, other.wait("chain_added", 3*time.Second))
@@ -225,21 +258,20 @@ func TestWS_WrongLetterRejected(t *testing.T) {
 
 	var actor, other *client
 	var otherID string
-	if turn.PlayerID == aID {
+	switch turn.PlayerID {
+	case aID:
 		actor, other, otherID = a, b, bID
-	} else {
+	default:
 		actor, other, otherID = b, a, aID
 	}
 
-	actor.send("submit_city", game.CityData{City: "\u041c\u0456\u043d\u0441\u043a"})
-	// Wait until the server has processed the actor's move and the turn
-	// actually belongs to `other`. Without this, both submissions race and
-	// the server may drop the second one (it arrives while it's still the
-	// actor's turn).
+	actor.send("submit_city", game.CityData{City: "Мінск"})
+	// Wait until the turn actually belongs to `other` before submitting;
+	// otherwise both submissions race and the server drops the second.
 	other.waitTurnFor(otherID, 3*time.Second)
 
-	// \u041c\u0456\u043d\u0441\u043a ends in \u041a; the other player submits a city starting with \u041c.
-	other.send("submit_city", game.CityData{City: "\u041c\u0430\u0433\u0456\u043b\u0451\u045e"})
+	// Мінск ends in К; other submits a city starting with М.
+	other.send("submit_city", game.CityData{City: "Магілёў"})
 	rej := decode[game.ChainRejected](t, other.wait("chain_rejected", 2*time.Second))
 	if rej.Reason != "wrong_letter" {
 		t.Errorf("reason=%q", rej.Reason)
@@ -260,44 +292,22 @@ func TestWS_UnknownCityRejected(t *testing.T) {
 
 	var actor, other *client
 	var otherID string
-	if turn.PlayerID == aID {
+	switch turn.PlayerID {
+	case aID:
 		actor, other, otherID = a, b, bID
-	} else {
+	default:
 		actor, other, otherID = b, a, aID
 	}
 
-	actor.send("submit_city", game.CityData{City: "\u041c\u0456\u043d\u0441\u043a"})
+	actor.send("submit_city", game.CityData{City: "Мінск"})
 	other.waitTurnFor(otherID, 3*time.Second)
 
-	// "\u041a\u0430\u043d\u0430\u0434\u0430" starts with \u041a (correct letter) but isn't a city in our DB.
-	other.send("submit_city", game.CityData{City: "\u041a\u0430\u043d\u0430\u0434\u0430"})
+	// "Канада" starts with К (correct letter) but isn't a city in our DB.
+	other.send("submit_city", game.CityData{City: "Канада"})
 	rej := decode[game.ChainRejected](t, other.wait("chain_rejected", 2*time.Second))
 	if rej.Reason != "not_in_db" {
 		t.Errorf("reason=%q", rej.Reason)
 	}
-}
-
-// waitTurnFor consumes turn_started frames until one names the given player.
-// This is the correct way to wait: the server broadcasts turn_started to
-// everyone, so a naive type-only match can grab a stale frame for a different
-// player and let the test race ahead of the server.
-func (c *client) waitTurnFor(id string, timeout time.Duration) game.TurnStarted {
-	c.t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			break
-		}
-		m := c.wait("turn_started", remaining)
-		ts := decode[game.TurnStarted](c.t, m)
-		if ts.PlayerID == id {
-			return ts
-		}
-		// Stale frame for another player; keep waiting.
-	}
-	c.t.Fatalf("timeout waiting for turn of %s", id)
-	return game.TurnStarted{}
 }
 
 func TestWS_PassTwiceEliminates(t *testing.T) {
@@ -308,21 +318,18 @@ func TestWS_PassTwiceEliminates(t *testing.T) {
 	aID := joinAs(t, a, "Ales")
 	b := dial(t, wsBase+"/ws/rooms/"+code)
 	bID := joinAs(t, b, "Yana")
-	a.wait("room_state", time.Second) // 2 players
+	a.wait("room_state", time.Second)
 
 	a.send("start", nil)
 
-	// Figure out who goes first.
 	first := decode[game.TurnStarted](t, a.wait("turn_started", 2*time.Second))
 	var actor, other *client
 	var actorID, otherID string
 	switch first.PlayerID {
 	case aID:
 		actor, actorID, other, otherID = a, aID, b, bID
-	case bID:
-		actor, actorID, other, otherID = b, bID, a, aID
 	default:
-		t.Fatalf("unknown first player %q", first.PlayerID)
+		actor, actorID, other, otherID = b, bID, a, aID
 	}
 
 	// Pass #1 — actor misses once, turn goes to the other player.
@@ -336,7 +343,6 @@ func TestWS_PassTwiceEliminates(t *testing.T) {
 	// Pass #2 — actor hits MaxMisses, gets eliminated, game ends.
 	actor.send("pass", nil)
 
-	// Either side should see player_out for the actor, then game_ended.
 	po := decode[game.PlayerOut](t, actor.wait("player_out", 3*time.Second))
 	if po.PlayerID != actorID {
 		t.Errorf("player_out for %q, want %q", po.PlayerID, actorID)

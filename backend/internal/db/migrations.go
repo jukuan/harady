@@ -82,6 +82,29 @@ CREATE TABLE IF NOT EXISTS games (
 CREATE INDEX IF NOT EXISTS idx_games_chain ON games(chain_length DESC);
 CREATE INDEX IF NOT EXISTS idx_games_ended ON games(ended_at DESC);`,
 	},
+	{
+		version: 6,
+		name:    "admin_magic_links_and_sessions",
+		sql: `
+CREATE TABLE IF NOT EXISTS admin_magic_links (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    email       TEXT NOT NULL,
+    token_hash  TEXT NOT NULL UNIQUE,
+    expires_at  DATETIME NOT NULL,
+    used_at     DATETIME,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_magic_hash ON admin_magic_links(token_hash);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    email       TEXT NOT NULL,
+    token_hash  TEXT NOT NULL UNIQUE,
+    expires_at  DATETIME NOT NULL,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_hash ON admin_sessions(token_hash);`,
+	},
 }
 
 const migrationsTable = `

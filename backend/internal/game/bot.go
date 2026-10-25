@@ -6,15 +6,42 @@ import (
 	"time"
 )
 
-// runBotTurn: waits a beat to feel human, then either submits a city or
-// (rarely, and never on the opening move) gives up.
+// botDelayBase is the min delay before a bot acts, in milliseconds.
+// Actual delay is base + rand[0..base]. Configurable via HARADY_BOT_DELAY_MS.
+var botDelayBase = 600
+
+// SetBotDelay is called once at startup from main.
+func SetBotDelay(ms int) {
+	if ms < 0 {
+		ms = 0
+	}
+	botDelayBase = ms
+}
+
+// runBotTurn: waits a beat to feel human, then tries a list of candidate
+// cities until one is accepted. Falls back to Pass if none work. Always
+// releases the turn.
 func (r *Room) runBotTurn(p *Player) {
-	time.Sleep(time.Duration(300+rand.Intn(900)) * time.Millisecond)
+	// A panic must never leave the turn stuck.
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("bot panic", "bot", p.Nickname, "panic", rec)
+			r.Pass(p.ID)
+		}
+	}()
+
+	d := 0
+	if botDelayBase > 0 {
+		d = botDelayBase + rand.Intn(botDelayBase+1)
+	}
+	if d > 0 {
+		time.Sleep(time.Duration(d) * time.Millisecond)
+	}
 
 	r.mu.RLock()
 	if r.Phase != PhasePlaying || r.turnID != p.ID {
 		r.mu.RUnlock()
-		slog.Debug("bot aborted (turn moved on)")
+		slog.Debug("bot aborted (turn moved on)", "bot", p.Nickname)
 		return
 	}
 	if bp := r.players[p.ID]; bp == nil || bp.Out {
@@ -32,25 +59,54 @@ func (r *Room) runBotTurn(p *Player) {
 	// Never pass on the opening move — the first player can play any city.
 	// After that, pass with a small probability so the bot is beatable.
 	if chainLen > 0 && rand.Float64() < 0.05 {
+		slog.Debug("bot chose to pass", "bot", p.Nickname)
 		r.Pass(p.ID)
 		return
 	}
 
-	var pick string
+	// Build a candidate pool. We ask for more than one so we can retry if
+	// our first pick is rejected (race with another player, duplicate
+	// canonicalization, etc.).
+	var candidates []string
 	if letter == 0 {
-		cities, err := r.Cities.RandomMany(1)
-		if err == nil && len(cities) > 0 {
-			pick = cities[0].Name
+		cities, err := r.Cities.RandomMany(5)
+		if err == nil {
+			for _, c := range cities {
+				candidates = append(candidates, c.Name)
+			}
 		}
 	} else {
-		names, err := r.Cities.FindByFirstLetter(letter, used, 5)
-		if err == nil && len(names) > 0 {
-			pick = names[rand.Intn(len(names))]
+		names, err := r.Cities.FindByFirstLetter(letter, used, 8)
+		if err == nil {
+			candidates = names
 		}
 	}
-	if pick == "" {
+
+	if len(candidates) == 0 {
+		slog.Warn("bot has no candidates — passing",
+			"room", r.Code, "bot", p.Nickname, "letter", string(letter))
 		r.Pass(p.ID)
 		return
 	}
-	r.SubmitCity(p.ID, pick)
+	rand.Shuffle(len(candidates), func(i, j int) {
+		candidates[i], candidates[j] = candidates[j], candidates[i]
+	})
+
+	for _, name := range candidates {
+		slog.Debug("bot tries", "bot", p.Nickname, "city", name)
+		if r.SubmitCity(p.ID, name) {
+			return
+		}
+		// If the turn has already moved on, stop retrying.
+		r.mu.RLock()
+		stillMine := r.Phase == PhasePlaying && r.turnID == p.ID
+		r.mu.RUnlock()
+		if !stillMine {
+			return
+		}
+	}
+
+	slog.Warn("bot exhausted candidates — passing",
+		"room", r.Code, "bot", p.Nickname, "tried", len(candidates))
+	r.Pass(p.ID)
 }

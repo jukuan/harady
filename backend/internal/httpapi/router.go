@@ -1,18 +1,21 @@
 package httpapi
 
 import (
+	"database/sql"
 	"net/http"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
 	"github.com/jukuan/harady/backend/internal/config"
+	"github.com/jukuan/harady/backend/internal/email"
 	"github.com/jukuan/harady/backend/internal/game"
 	"github.com/jukuan/harady/backend/internal/store"
 	"github.com/jukuan/harady/backend/internal/ws"
 )
 
-func NewRouter(cfg *config.Config, hub *game.Hub, cities *store.CityStore) *gin.Engine {
+func NewRouter(cfg *config.Config, hub *game.Hub, cities *store.CityStore,
+	admins *store.AdminStore, mailer *email.Sender, db *sql.DB) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
@@ -29,6 +32,7 @@ func NewRouter(cfg *config.Config, hub *game.Hub, cities *store.CityStore) *gin.
 	roomLimiter := newLimiter(1.0/3.0, 5)
 
 	api := r.Group("/api")
+	registerAdminRoutes(api, cfg, cities, admins, mailer, db)
 	{
 		api.POST("/rooms", rateLimit(roomLimiter), func(c *gin.Context) {
 			room := hub.CreateRoom()

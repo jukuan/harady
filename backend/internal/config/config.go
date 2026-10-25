@@ -20,6 +20,16 @@ type Config struct {
 	TurnTimeout time.Duration
 	BotDelayMS  int
 	AdminToken  string
+
+	// Admin panel
+	AdminEmails []string
+	AdminBaseURL string // frontend URL, e.g. http://localhost:5173 or https://harady.juljan.by
+	APIBaseURL   string // API URL, e.g. http://localhost:8070 or https://api.harady.juljan.by
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUser     string
+	SMTPPass     string
+	SMTPFrom     string
 }
 
 func Load() *Config {
@@ -35,6 +45,15 @@ func Load() *Config {
 		TurnTimeout: parseDur(env("HARADY_TURN_TIMEOUT", "120s"), 120*time.Second),
 		BotDelayMS:  parseInt(env("HARADY_BOT_DELAY_MS", "600"), 600),
 		AdminToken:  env("HARADY_ADMIN_TOKEN", ""),
+
+		AdminEmails:  splitCSV(env("HARADY_ADMIN_EMAILS", "")),
+		AdminBaseURL: env("HARADY_ADMIN_BASE_URL", ""),
+		APIBaseURL:   env("HARADY_API_BASE_URL", ""),
+		SMTPHost:     env("HARADY_SMTP_HOST", ""),
+		SMTPPort:     parseInt(env("HARADY_SMTP_PORT", "587"), 587),
+		SMTPUser:     env("HARADY_SMTP_USER", ""),
+		SMTPPass:     env("HARADY_SMTP_PASS", ""),
+		SMTPFrom:     env("HARADY_SMTP_FROM", "Harady <noreply@localhost>"),
 	}
 }
 
