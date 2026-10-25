@@ -1,0 +1,93 @@
+# Cities — volume 6.
+#
+# Fills the two thinnest initial letters after volumes 1–5:
+#
+#   Е — only 3 entries in the entire pack (Екацярынбург, Ельск, Ерэван).
+#       Any city ending in Е (Іўе, Ларнака? no, that's А) needs an
+#       Е-starting answer, and 3 obscure names isn't enough. This volume
+#       adds 11 more.
+#
+#   Ё — 5 entries (Ёрк, Ёнава, Ён'ін, Ёсу, Ёшкар-Ала, Ёкагама). Cities
+#       ending in Ё (Вадсё, Мальмё) need Ё-starts. This volume adds 7 more.
+#
+#   Ц — 8 entries, all non-European except Цюрых. This volume adds 6 more.
+#
+# Plus a handful of chain-helpers for endings that occasionally dead-end.
+#
+# Format:  Name|Region
+# Lines starting with # are ignored. Duplicates are skipped silently.
+
+# =========================================================================
+# Е — highest-priority gap (3 in pack → 14 after this file)
+# =========================================================================
+Ейск|Расія
+Елец|Расія
+Ельня|Расія
+Елабуга|Расія
+Енісейск|Расія
+Егор'еўск|Расія
+Еманжэлінск|Расія
+Ертыль|Расія
+Еўпаторыя|Украіна
+Ермалаеўка|Казахстан
+Ерэван|Арменія
+
+# =========================================================================
+# Ё — second gap (5 in pack → 12 after this file)
+# =========================================================================
+Ёкасука|Японія
+Ёнага|Японія
+Ёнчхон|Паўднёвая Карэя
+Ёнгін|Паўднёвая Карэя
+Ёнволь|Паўднёвая Карэя
+Ёрктан|Канада
+Ёсікар|Расія
+
+# =========================================================================
+# Ц — third gap (8 in pack → 14 after this file)
+# =========================================================================
+Царэва-Кокшайск|Расія
+Цэтынэ|Чарнагорыя
+Цхалтубо|Грузія
+Црвенка|Сербія
+Цаленджыха|Грузія
+Цинцынаты|ЗША
+
+# =========================================================================
+# Chain-helpers: endings that occasionally dead-end
+#
+# The following cities don't fill thin *initial* letters, but they end in
+# letters that are hard to continue from (Г, Х, Ж, Д). When the required
+# next-letter is one of those and the pack is exhausted, these give
+# alternatives. All names/regions are new — no duplicates with cities01–05.
+# =========================================================================
+
+# Ends in Г — from Таганрог, Гамбург, Екацярынбург
+Брандэнбург|Германія
+Вялікі Ноўгарад|Расія
+Калінінград|Расія
+Копенгаген|Данія
+
+# Ends in Х — from Ашхабад? no, ends Д. From Лейпцыг? no. From Аахен? no.
+# These provide Х-starts when one is required.
+Херсон|Украіна
+Хартум|Судан
+Хірасіма|Японія
+Хайфа|Ізраіль
+Хабараўск|Расія
+Хмельніцкі|Украіна
+Ханчжоу|Кітай
+
+# Ends in Ж — rare but possible
+Жытомір|Украіна
+Жырона|Іспанія
+Жэлёна-Гура|Польшча
+Жуан-Песоа|Бразілія
+
+# Ends in Д — from Мадрыд, Багдад, Ліверпуль? no ends Л. From Кабул? no.
+# Д-starts are fine but a few more don't hurt.
+Дортмунд|Германія
+Душанбэ|Таджыкістан
+Джуба|Паўднёвы Судан
+Дар-эс-Салам|Танзанія
+Доха|Катар
